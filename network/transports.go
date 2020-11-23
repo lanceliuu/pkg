@@ -157,6 +157,7 @@ func (m *mtlsCertificate) init() {
 	}
 	m.certPool = clientCertPool
 	clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
+	fmt.Printf("load client key pair %#v\n", clientKeyPair)
 	if err == nil {
 		m.clientKeyPair = &clientKeyPair
 		go m.reloadClientKeyPair()
@@ -168,15 +169,15 @@ func (m *mtlsCertificate) reloadClientKeyPair() {
 		m.lock.Lock()
 		x509Cert, err := x509.ParseCertificate(m.clientKeyPair.Certificate[0])
 		if err != nil {
-			fmt.Printf("parse cert errored %+v", err)
+			fmt.Printf("parse cert errored %+v\n", err)
 			continue
 		}
 		m.lock.Unlock()
 		expireDate := x509Cert.NotAfter
-		fmt.Printf("cert expire date: %s", expireDate.String())
+		fmt.Printf("cert expire date: %s\n", expireDate.String())
 		timeToRefresh := expireDate.Sub(time.Now().Add(time.Duration(time.Minute * 5)))
 		<-time.After(timeToRefresh)
-		fmt.Printf("refresh cert at : %s", time.Now().String())
+		fmt.Printf("refresh cert at : %s\n", time.Now().String())
 		clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
 		if err == nil {
 			m.lock.Lock()
