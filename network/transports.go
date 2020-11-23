@@ -190,6 +190,9 @@ func (m *mtlsCertificate) getClientCertificate(cri *tls.CertificateRequestInfo) 
 	// ignored cri
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	if m.clientKeyPair == nil {
+		return nil, fmt.Errorf("client cert not initialized")
+	}
 	return m.clientKeyPair, nil
 }
 
