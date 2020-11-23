@@ -141,49 +141,49 @@ func newmtlsCertificate(caPath, certPath, keyPath string) *mtlsCertificate {
 		caPath:   caPath,
 		certPath: certPath,
 		keyPath:  keyPath,
+		certPool: x509.NewCertPool(),
 	}
-	m.init()
+	go m.reloadClientKeyPair()
 	return m
-}
-
-func (m *mtlsCertificate) init() {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	clientCertPool := x509.NewCertPool()
-	_, err := os.Stat(m.caPath)
-	if err == nil {
-		ca, _ := ioutil.ReadFile(m.caPath)
-		clientCertPool.AppendCertsFromPEM(ca)
-	}
-	m.certPool = clientCertPool
-	clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
-	fmt.Printf("load client key pair %#v\n", clientKeyPair)
-	if err == nil {
-		m.clientKeyPair = &clientKeyPair
-		go m.reloadClientKeyPair()
-	}
 }
 
 func (m *mtlsCertificate) reloadClientKeyPair() {
 	for {
-		m.lock.Lock()
+		var ca, cert, key bool
+		if _, err := os.Stat(m.caPath); err == nil {
+			ca = true
+		}
+		if _, err := os.Stat(m.certPath); err == nil {
+			cert = true
+		}
+		if _, err := os.Stat(m.keyPath); err == nil {
+			key = true
+		}
+		if !(ca && cert && key) {
+			fmt.Printf("cert file not loaded\n")
+			time.Sleep(time.Duration(1 * time.Second))
+			continue
+		}
+		caData, _ := ioutil.ReadFile(m.caPath)
+		clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
+		if err != nil {
+			fmt.Printf("load x509 key and cert error %#v \n", err)
+			continue
+		}
 		x509Cert, err := x509.ParseCertificate(m.clientKeyPair.Certificate[0])
 		if err != nil {
 			fmt.Printf("parse cert errored %+v\n", err)
 			continue
 		}
+		m.lock.Lock()
+		m.certPool.AppendCertsFromPEM(caData)
+		m.clientKeyPair = &clientKeyPair
 		m.lock.Unlock()
 		expireDate := x509Cert.NotAfter
 		fmt.Printf("cert expire date: %s\n", expireDate.String())
 		timeToRefresh := expireDate.Sub(time.Now().Add(time.Duration(time.Minute * 5)))
 		<-time.After(timeToRefresh)
 		fmt.Printf("refresh cert at : %s\n", time.Now().String())
-		clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
-		if err == nil {
-			m.lock.Lock()
-			m.clientKeyPair = &clientKeyPair
-			m.lock.Unlock()
-		}
 	}
 }
 
@@ -192,7 +192,7 @@ func (m *mtlsCertificate) getClientCertificate(cri *tls.CertificateRequestInfo) 
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	if m.clientKeyPair == nil {
-		return nil, fmt.Errorf("client cert not initialized, %#v\n", m)
+		return nil, fmt.Errorf("cert not loaded yet")
 	}
 	return m.clientKeyPair, nil
 }
