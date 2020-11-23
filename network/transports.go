@@ -162,7 +162,14 @@ func (m *mtlsCertificate) init() {
 
 func (m *mtlsCertificate) reloadClientKeyPair() {
 	for {
-		expireDate := m.clientKeyPair.Leaf.NotAfter
+		m.lock.Lock()
+		x509Cert, err := x509.ParseCertificate(m.clientKeyPair.Certificate[0])
+		if err != nil {
+			fmt.Printf("parse cert errored %+v", err)
+			continue
+		}
+		m.lock.Unlock()
+		expireDate := x509Cert.NotAfter
 		fmt.Printf("cert expire date: %s", expireDate.String())
 		timeToRefresh := expireDate.Sub(time.Now().Add(time.Duration(time.Minute * 5)))
 		<-time.After(timeToRefresh)
@@ -170,8 +177,8 @@ func (m *mtlsCertificate) reloadClientKeyPair() {
 		clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
 		if err == nil {
 			m.lock.Lock()
-			defer m.lock.Unlock()
 			m.clientKeyPair = &clientKeyPair
+			m.lock.Unlock()
 		}
 	}
 }
