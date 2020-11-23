@@ -170,11 +170,12 @@ func (m *mtlsCertificate) reloadClientKeyPair() {
 			fmt.Printf("load x509 key and cert error %#v \n", err)
 			continue
 		}
-		x509Cert, err := x509.ParseCertificate(m.clientKeyPair.Certificate[0])
+		x509Cert, err := x509.ParseCertificate(clientKeyPair.Certificate[0])
 		if err != nil {
 			fmt.Printf("parse cert errored %+v\n", err)
 			continue
 		}
+		fmt.Printf("parsed cert successfully %#v \n", x509Cert)
 		m.lock.Lock()
 		m.certPool.AppendCertsFromPEM(caData)
 		m.clientKeyPair = &clientKeyPair
