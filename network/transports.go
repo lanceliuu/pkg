@@ -18,9 +18,14 @@ package network
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -100,12 +105,82 @@ func newHTTPTransport(disableKeepAlives bool, maxIdle, maxIdlePerHost int) http.
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableKeepAlives:     disableKeepAlives,
-
+		TLSClientConfig:       newmTLSClientConfig(),
 		// Those are bespoke.
 		DialContext:         DialWithBackOff,
 		MaxIdleConns:        maxIdle,
 		MaxIdleConnsPerHost: maxIdlePerHost,
 	}
+}
+
+func newmTLSClientConfig() *tls.Config {
+	caFile := "/etc/istio-certs/root-cert.pem"
+	certFile := "/etc/istio-certs/cert-chain.pem"
+	keyFile := "/etc/istio-certs/key.pem"
+	n := newmtlsCertificate(caFile, certFile, keyFile)
+	return &tls.Config{
+		RootCAs:              n.certPool,
+		GetClientCertificate: n.getClientCertificate,
+	}
+}
+
+type mtlsCertificate struct {
+	caPath        string
+	certPath      string
+	keyPath       string
+	certPool      *x509.CertPool
+	clientKeyPair *tls.Certificate
+	lock          sync.Mutex
+}
+
+func newmtlsCertificate(caPath, certPath, keyPath string) *mtlsCertificate {
+	m := &mtlsCertificate{
+		caPath:   caPath,
+		certPath: certPath,
+		keyPath:  keyPath,
+	}
+	m.init()
+	return m
+}
+
+func (m *mtlsCertificate) init() {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	clientCertPool := x509.NewCertPool()
+	_, err := os.Stat(m.caPath)
+	if err == nil {
+		ca, _ := ioutil.ReadFile(m.caPath)
+		clientCertPool.AppendCertsFromPEM(ca)
+	}
+	m.certPool = clientCertPool
+	clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
+	if err == nil {
+		m.clientKeyPair = &clientKeyPair
+		go m.reloadClientKeyPair()
+	}
+}
+
+func (m *mtlsCertificate) reloadClientKeyPair() {
+	for {
+		expireDate := m.clientKeyPair.Leaf.NotAfter
+		fmt.Printf("cert expire date: %s", expireDate.String())
+		timeToRefresh := expireDate.Sub(time.Now().Add(time.Duration(time.Minute * 5)))
+		<-time.After(timeToRefresh)
+		fmt.Printf("refresh cert at : %s", time.Now().String())
+		clientKeyPair, err := tls.LoadX509KeyPair(m.certPath, m.keyPath)
+		if err == nil {
+			m.lock.Lock()
+			defer m.lock.Unlock()
+			m.clientKeyPair = &clientKeyPair
+		}
+	}
+}
+
+func (m *mtlsCertificate) getClientCertificate(cri *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	// ignored cri
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.clientKeyPair, nil
 }
 
 // NewProberTransport creates a RoundTripper that is useful for probing,
