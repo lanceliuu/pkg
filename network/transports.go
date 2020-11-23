@@ -119,7 +119,10 @@ func newmTLSClientConfig() *tls.Config {
 	keyFile := "/etc/istio-certs/key.pem"
 	n := newmtlsCertificate(caFile, certFile, keyFile)
 	return &tls.Config{
-		RootCAs:              n.certPool,
+		RootCAs: n.certPool,
+		// this is must have for tls verification using istio certs.
+		// need to figure out what has been done from istio side
+		InsecureSkipVerify:   true,
 		GetClientCertificate: n.getClientCertificate,
 	}
 }
