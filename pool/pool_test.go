@@ -20,9 +20,10 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/atomic"
 )
 
 func TestParallelismNoErrors(t *testing.T) {
@@ -50,7 +51,7 @@ func TestParallelismNoErrors(t *testing.T) {
 				// m guards max.
 				m      sync.Mutex
 				max    int32
-				active int32
+				active atomic.Int32
 			)
 
 			// Use our own waitgroup to ensure that the work
@@ -60,14 +61,14 @@ func TestParallelismNoErrors(t *testing.T) {
 
 			worker := func() error {
 				defer wg.Done()
-				na := atomic.AddInt32(&active, 1)
-				defer atomic.AddInt32(&active, -1)
+				active.Inc()
+				defer active.Dec()
 
 				func() {
 					m.Lock()
 					defer m.Unlock()
-					if max < na {
-						max = na
+					if v := active.Load(); max < v {
+						max = v
 					}
 				}()
 
@@ -90,11 +91,11 @@ func TestParallelismNoErrors(t *testing.T) {
 			wg.Wait()
 
 			if err := p.Wait(); err != nil {
-				t.Errorf("Wait() = %v", err)
+				t.Error("Wait() =", err)
 			}
 
 			if err := p.Wait(); err != nil {
-				t.Errorf("Wait() = %v", err)
+				t.Error("Wait() =", err)
 			}
 
 			if got, want := max, int32(tc.size); got != want {
@@ -129,7 +130,7 @@ func TestParallelismWithErrors(t *testing.T) {
 				// m guards max.
 				m      sync.Mutex
 				max    int32
-				active int32
+				active atomic.Int32
 			)
 
 			// Use our own waitgroup to ensure that the work
@@ -145,14 +146,14 @@ func TestParallelismWithErrors(t *testing.T) {
 			workerFactory := func(err error) func() error {
 				return func() error {
 					defer wg.Done()
-					na := atomic.AddInt32(&active, 1)
-					defer atomic.AddInt32(&active, -1)
+					active.Inc()
+					defer active.Dec()
 
 					func() {
 						m.Lock()
 						defer m.Unlock()
-						if max < na {
-							max = na
+						if v := active.Load(); max < v {
+							max = v
 						}
 					}()
 
@@ -162,7 +163,7 @@ func TestParallelismWithErrors(t *testing.T) {
 					time.Sleep(10 * time.Millisecond)
 
 					// Make all unexpected errors wait.
-					if err != errExpected {
+					if !errors.Is(err, errExpected) {
 						<-barrier
 					}
 					return err
@@ -192,7 +193,7 @@ func TestParallelismWithErrors(t *testing.T) {
 			// remaining work.
 			wg.Wait()
 
-			if err := p.Wait(); err != errExpected {
+			if err := p.Wait(); !errors.Is(err, errExpected) {
 				t.Errorf("Wait() = %v, wanted %v", err, errExpected)
 			}
 
@@ -240,7 +241,7 @@ func TestErrorCancelsContext(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Error("ctx is not canceled due to the first error")
 	}
-	if err := pool.Wait(); err != want {
+	if err := pool.Wait(); !errors.Is(err, want) {
 		t.Fatalf("pool.Wait() = %v, want: %v", err, want)
 	}
 }

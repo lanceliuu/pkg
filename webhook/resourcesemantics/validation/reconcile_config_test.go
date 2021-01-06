@@ -66,9 +66,6 @@ func TestReconcile(t *testing.T) {
 		MatchExpressions: []metav1.LabelSelectorRequirement{{
 			Key:      "webhooks.knative.dev/exclude",
 			Operator: metav1.LabelSelectorOpDoesNotExist,
-		}, {
-			Key:      "control-plane",
-			Operator: metav1.LabelSelectorOpDoesNotExist,
 		}},
 	}
 
@@ -78,28 +75,28 @@ func TestReconcile(t *testing.T) {
 		Rule: admissionregistrationv1.Rule{
 			APIGroups:   []string{"pkg.knative.dev"},
 			APIVersions: []string{"v1alpha1"},
-			Resources:   []string{"innerdefaultresources/*"},
+			Resources:   []string{"innerdefaultresources", "innerdefaultresources/status"},
 		},
 	}, {
 		Operations: []admissionregistrationv1.OperationType{"CREATE", "UPDATE", "DELETE"},
 		Rule: admissionregistrationv1.Rule{
 			APIGroups:   []string{"pkg.knative.dev"},
 			APIVersions: []string{"v1alpha1"},
-			Resources:   []string{"resources/*"},
+			Resources:   []string{"resources", "resources/status"},
 		},
 	}, {
 		Operations: []admissionregistrationv1.OperationType{"CREATE", "UPDATE", "DELETE"},
 		Rule: admissionregistrationv1.Rule{
 			APIGroups:   []string{"pkg.knative.dev"},
 			APIVersions: []string{"v1beta1"},
-			Resources:   []string{"resources/*"},
+			Resources:   []string{"resources", "resources/status"},
 		},
 	}, {
 		Operations: []admissionregistrationv1.OperationType{"CREATE", "UPDATE", "DELETE"},
 		Rule: admissionregistrationv1.Rule{
 			APIGroups:   []string{"pkg.knative.io"},
 			APIVersions: []string{"v1alpha1"},
-			Resources:   []string{"innerdefaultresources/*"},
+			Resources:   []string{"innerdefaultresources", "innerdefaultresources/status"},
 		},
 	}}
 
@@ -322,11 +319,85 @@ func TestReconcile(t *testing.T) {
 						CABundle: []byte("present"),
 					},
 					// Rules are fine.
-					Rules:             expectedRules,
-					NamespaceSelector: namespaceSelector,
+					Rules: expectedRules,
+					// A non-knative key in the namespace selector is fine.
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "webhooks.knative.dev/exclude",
+							Operator: metav1.LabelSelectorOpDoesNotExist,
+						}, {
+							Key:      "foo.bar/baz",
+							Operator: metav1.LabelSelectorOpDoesNotExist,
+						}},
+					},
 				}},
 			},
 		},
+	}, {
+		Name: "secret and VWH exist, correcting namespaceSelector",
+		Key:  key,
+		Objects: []runtime.Object{secret,
+			&admissionregistrationv1.ValidatingWebhookConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: name,
+				},
+				Webhooks: []admissionregistrationv1.ValidatingWebhook{{
+					Name: name,
+					ClientConfig: admissionregistrationv1.WebhookClientConfig{
+						Service: &admissionregistrationv1.ServiceReference{
+							Namespace: system.Namespace(),
+							Name:      "webhook",
+							// Path is fine.
+							Path: ptr.String(path),
+						},
+						// CABundle is fine.
+						CABundle: []byte("present"),
+					},
+					// Rules are fine.
+					Rules: expectedRules,
+					// NamespaceSelector contains non-knative things.
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "foo.knative.dev/exclude",
+							Operator: metav1.LabelSelectorOpDoesNotExist,
+						}, {
+							Key:      "foo.bar/baz",
+							Operator: metav1.LabelSelectorOpDoesNotExist,
+						}},
+					},
+				}},
+			},
+		},
+		WantUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: &admissionregistrationv1.ValidatingWebhookConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: name,
+				},
+				Webhooks: []admissionregistrationv1.ValidatingWebhook{{
+					Name: name,
+					ClientConfig: admissionregistrationv1.WebhookClientConfig{
+						Service: &admissionregistrationv1.ServiceReference{
+							Namespace: system.Namespace(),
+							Name:      "webhook",
+							Path:      ptr.String(path),
+						},
+						CABundle: []byte("present"),
+					},
+					Rules: expectedRules,
+					NamespaceSelector: &metav1.LabelSelector{
+						// The knative key is added while the non-knative key is kept.
+						// Old knative key is removed.
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "webhooks.knative.dev/exclude",
+							Operator: metav1.LabelSelectorOpDoesNotExist,
+						}, {
+							Key:      "foo.bar/baz",
+							Operator: metav1.LabelSelectorOpDoesNotExist,
+						}},
+					},
+				}},
+			},
+		}},
 	}}
 
 	table.Test(t, MakeFactory(func(ctx context.Context, listers *Listers, cmw configmap.Watcher) controller.Reconciler {
@@ -371,10 +442,10 @@ func TestNew(t *testing.T) {
 	}
 
 	if err := la.Promote(pkgreconciler.UniversalBucket(), c.MaybeEnqueueBucketKey); err != nil {
-		t.Errorf("Promote() = %v", err)
+		t.Error("Promote() =", err)
 	}
 
-	// Queue has async moving parts so if we check at the wrong moment, thist might still be 0.
+	// Queue has async moving parts so if we check at the wrong moment, this might still be 0.
 	if wait.PollImmediate(10*time.Millisecond, 250*time.Millisecond, func() (bool, error) {
 		return c.WorkQueue().Len() == 1, nil
 	}) != nil {

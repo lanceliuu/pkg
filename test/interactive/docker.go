@@ -47,7 +47,7 @@ func (e Env) PromoteFromEnv(envVars ...string) error {
 	for _, env := range envVars {
 		v := os.Getenv(env)
 		if v == "" {
-			err = fmt.Errorf("environment variable %q is not set; %v", env, err)
+			err = fmt.Errorf("environment variable %q is not set; %w", env, err)
 		} else {
 			e[env] = v
 		}
@@ -102,7 +102,7 @@ func (d *Docker) AddRWOverlay(externalDirectory, internalDirectory string) func(
 	// Print command to run so user knows why it is asking for sudo password (if it does)
 	log.Println(mount)
 	if err = mount.Run(); err != nil {
-		log.Fatalf("Unable to create overlay mount, so giving up: %v", err)
+		log.Fatal("Unable to create overlay mount, so giving up: ", err)
 	}
 	d.AddMount("bind", overlayDir, internalDirectory)
 	return func() {

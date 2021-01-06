@@ -19,24 +19,25 @@ package duck
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
 )
 
 type BlockingInformerFactory struct {
 	block  chan struct{}
-	nCalls int32
+	nCalls atomic.Int32
 }
 
 var _ InformerFactory = (*BlockingInformerFactory)(nil)
 
-func (bif *BlockingInformerFactory) Get(gvr schema.GroupVersionResource) (cache.SharedIndexInformer, cache.GenericLister, error) {
-	atomic.AddInt32(&bif.nCalls, 1)
+func (bif *BlockingInformerFactory) Get(ctx context.Context, gvr schema.GroupVersionResource) (cache.SharedIndexInformer, cache.GenericLister, error) {
+	bif.nCalls.Inc()
 	// Wait here until we can acquire the lock
 	<-bif.block
 
@@ -48,16 +49,18 @@ func (bif *BlockingInformerFactory) Get(gvr schema.GroupVersionResource) (cache.
 }
 
 func TestSameGVR(t *testing.T) {
-	bif := &BlockingInformerFactory{block: make(chan struct{})}
+	bif := &BlockingInformerFactory{
+		block: make(chan struct{}),
+	}
 
 	cif := &CachedInformerFactory{
 		Delegate: bif,
 	}
 
 	// counts the number of calls to cif.Get that returned
-	retGetCount := int32(0)
+	retGetCount := atomic.NewInt32(0)
 
-	errGrp, _ := errgroup.WithContext(context.Background())
+	errGrp, ctx := errgroup.WithContext(context.Background())
 
 	// Use the same GVR each iteration to ensure we hit the cache and don't
 	// initialize the informerCache for that GVR multiple times through our
@@ -71,8 +74,8 @@ func TestSameGVR(t *testing.T) {
 	const iter = 10
 	for i := 0; i < iter; i++ {
 		errGrp.Go(func() error {
-			_, _, err := cif.Get(gvr)
-			atomic.AddInt32(&retGetCount, 1)
+			_, _, err := cif.Get(ctx, gvr)
+			retGetCount.Inc()
 			return err
 		})
 	}
@@ -82,10 +85,10 @@ func TestSameGVR(t *testing.T) {
 
 	// Check that no call to cif.Get have returned and bif.Get was called
 	// only once.
-	if got, want := atomic.LoadInt32(&retGetCount), int32(0); got != want {
+	if got, want := retGetCount.Load(), int32(0); got != want {
 		t.Errorf("Got %d returned call(s) to cif.Get, wanted %d", got, want)
 	}
-	if got, want := atomic.LoadInt32(&bif.nCalls), int32(1); got != want {
+	if got, want := bif.nCalls.Load(), int32(1); got != want {
 		t.Errorf("Got %d call(s) to bif.Get, wanted %d", got, want)
 	}
 
@@ -93,30 +96,32 @@ func TestSameGVR(t *testing.T) {
 	close(bif.block)
 
 	if err := errGrp.Wait(); err != nil {
-		t.Fatalf("Error while calling cif.Get: %v", err)
+		t.Fatal("Error while calling cif.Get:", err)
 	}
 
 	// Check that all calls to cif.Get have returned and calls to bif.Get
 	// didn't increase.
-	if got, want := atomic.LoadInt32(&retGetCount), int32(iter); got != want {
+	if got, want := retGetCount.Load(), int32(iter); got != want {
 		t.Errorf("Got %d returned call(s) to cif.Get, wanted %d", got, want)
 	}
-	if got, want := atomic.LoadInt32(&bif.nCalls), int32(1); got != want {
+	if got, want := bif.nCalls.Load(), int32(1); got != want {
 		t.Errorf("Got %d call(s) to bif.Get, wanted %d", got, want)
 	}
 }
 
 func TestDifferentGVRs(t *testing.T) {
-	bif := &BlockingInformerFactory{block: make(chan struct{})}
+	bif := &BlockingInformerFactory{
+		block: make(chan struct{}),
+	}
 
 	cif := &CachedInformerFactory{
 		Delegate: bif,
 	}
 
 	// counts the number of calls to cif.Get that returned
-	retGetCount := int32(0)
+	retGetCount := atomic.NewInt32(0)
 
-	errGrp, _ := errgroup.WithContext(context.Background())
+	errGrp, ctx := errgroup.WithContext(context.Background())
 
 	const iter = 10
 	for i := 0; i < iter; i++ {
@@ -125,13 +130,13 @@ func TestDifferentGVRs(t *testing.T) {
 		// for another GVR.
 		gvr := schema.GroupVersionResource{
 			Group:    "testing.knative.dev",
-			Version:  fmt.Sprintf("v%d", i),
+			Version:  fmt.Sprint("v", i),
 			Resource: "caches",
 		}
 
 		errGrp.Go(func() error {
-			_, _, err := cif.Get(gvr)
-			atomic.AddInt32(&retGetCount, 1)
+			_, _, err := cif.Get(ctx, gvr)
+			retGetCount.Inc()
 			return err
 		})
 	}
@@ -141,10 +146,10 @@ func TestDifferentGVRs(t *testing.T) {
 
 	// Check that no call to cif.Get have returned and bif.Get was called
 	// once per iteration.
-	if got, want := atomic.LoadInt32(&retGetCount), int32(0); got != want {
+	if got, want := retGetCount.Load(), int32(0); got != want {
 		t.Errorf("Got %d returned call(s) to cif.Get, wanted %d", got, want)
 	}
-	if got, want := atomic.LoadInt32(&bif.nCalls), int32(iter); got != want {
+	if got, want := bif.nCalls.Load(), int32(iter); got != want {
 		t.Errorf("Got %d call(s) to bif.Get, wanted %d", got, want)
 	}
 
@@ -152,25 +157,25 @@ func TestDifferentGVRs(t *testing.T) {
 	close(bif.block)
 
 	if err := errGrp.Wait(); err != nil {
-		t.Fatalf("Error while calling cif.Get: %v", err)
+		t.Fatal("Error while calling cif.Get:", err)
 	}
 
 	// Check that all calls to cif.Get have returned and the number of
 	// calls to bif.Get didn't increase.
-	if got, want := atomic.LoadInt32(&retGetCount), int32(iter); got != want {
+	if got, want := retGetCount.Load(), int32(iter); got != want {
 		t.Errorf("Got %d returned call(s) to cif.Get, wanted %d", got, want)
 	}
-	if got, want := atomic.LoadInt32(&bif.nCalls), int32(iter); got != want {
+	if got, want := bif.nCalls.Load(), int32(iter); got != want {
 		t.Errorf("Got %d call(s) to bif.Get, wanted %d", got, want)
 	}
 }
 
-// fakeGenericLister returns a dummy cache.GenericLister.
+// fakeGenericLister returns a fake cache.GenericLister.
 func fakeGenericLister(gr schema.GroupResource) cache.GenericLister {
-	var dummyKeyFunc cache.KeyFunc = func(interface{}) (string, error) {
+	var fakeKeyFunc cache.KeyFunc = func(interface{}) (string, error) {
 		return "", nil
 	}
 
-	dummyIndexer := cache.NewIndexer(dummyKeyFunc, cache.Indexers{})
-	return cache.NewGenericLister(dummyIndexer, gr)
+	fakeIndexer := cache.NewIndexer(fakeKeyFunc, cache.Indexers{})
+	return cache.NewGenericLister(fakeIndexer, gr)
 }

@@ -39,7 +39,7 @@ func (rt RoundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return rt(r)
 }
 
-func newAutoTransport(v1 http.RoundTripper, v2 http.RoundTripper) http.RoundTripper {
+func newAutoTransport(v1, v2 http.RoundTripper) http.RoundTripper {
 	return RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		t := v1
 		if r.ProtoMajor == 2 {
@@ -81,7 +81,8 @@ func dialBackOffHelper(ctx context.Context, network, address string, bo wait.Bac
 	for {
 		c, err := dialer.DialContext(ctx, network, address)
 		if err != nil {
-			if err, ok := err.(net.Error); ok && err.Timeout() {
+			var errNet net.Error
+			if errors.As(err, &errNet) && errNet.Timeout() {
 				if bo.Steps < 1 {
 					break
 				}

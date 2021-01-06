@@ -47,14 +47,16 @@ This roster is seeded with all approvers from Eventing workgroups.
 | ------- | ------------ | -------------- | --------------- | ----------- | ---------- |
 | v0.17   | 2020-08-18   | yanweiguo      | Harwayne        | -           | 2020-08-11 |
 | v0.18   | 2020-09-29   | ZhiminXiang    | n3wscott        | 2020-08-19  | 2020-09-22 |
-| v0.19   | 2020-11-10   | julz           | nachocano       | 2020-09-30  | 2020-11-03 |
-| v0.20   | 2020-12-22   | nak3           | slinkydeveloper | 2020-11-11  | 2020-12-15 |
-| v0.21   | 2021-02-02   | mattmoor       | lionelvillard   | 2020-12-23  | 2021-01-26 |
-| v0.22   | 2021-03-16   | markusthoemmes | evankanderson   | 2020-02-03  | 2021-03-09 |
-| v0.23   | 2021-04-27   | tcnghia        | vaikas          | 2020-03-17  | 2021-04-20 |
-| v0.24   | 2021-06-08   | dprotaso       | matzew          | 2020-04-28  | 2021-06-01 |
-| v0.25   | 2021-07-20   | vagababov      | grantr          | 2020-06-09  | 2021-07-13 |
-| v0.26   | 2021-08-31   | JRBANCEL       | ...             | 2020-07-21  | 2021-08-24 |
+| v0.19   | 2020-11-10   | julz           | n3wscott        | 2020-09-30  | 2020-11-03 |
+| v0.20   | 2021-01-12   | nak3           | slinkydeveloper | 2020-11-11  | 2021-01-07 |
+| v0.21   | 2021-02-23   | mattmoor       | lionelvillard   | 2021-01-13  | 2021-02-16 |
+| v0.22   | 2021-04-06   | markusthoemmes | evankanderson   | 2021-02-24  | 2021-03-30 |
+| v0.23   | 2021-05-18   | tcnghia        | vaikas          | 2021-04-07  | 2021-05-11 |
+| v0.24   | 2021-06-29   | dprotaso       | matzew          | 2021-05-19  | 2021-06-22 |
+| v0.25   | 2021-08-10   | vagababov      | grantr          | 2021-06-30  | 2021-08-03 |
+| v0.26   | 2021-09-21   | JRBANCEL       | ...             | 2021-08-11  | 2021-09-14 |
+
+**NOTE:** v0.20 is moved by 3 weeks for end of year holidays
 
 # Release instruction
 
@@ -73,29 +75,19 @@ https://github.com/knative/community/blob/master/peribolos/knative-sandbox.yaml
 [this one](https://github.com/knative/community/pull/209) to grant yourself some
 super power.
 
-### Revert all pins to pin master branches again
+### Create a release Slack channel
 
-Revert all pins in all repositories to pin the **master** branches again, run
-`hack/update-deps.sh --upgrade` and PR the changes.
-
-You should only need to do this for
-`knative/{serving,eventing-contrib,eventing}` and
-`knative-sandbox/net-{istio,contour,kourier,http01,certmanager}`. However, you
-may want to double check `knative/{pkg,caching,networking}` as well in case the
-previous release leads missed a step during their last rotation.
-
-Example PRs:
-
-- [knative/serving](https://github.com/knative/serving/pull/8579)
-- [knative/eventing](https://github.com/knative/eventing/pull/3546)
-- [knative/eventing-contrib](https://github.com/knative/eventing-contrib/pull/1272)
-- [knative-sandbox/net-istio](https://github.com/knative-sandbox/net-istio/pull/172)
-- [knative-sandbox/net-contour](https://github.com/knative-sandbox/net-contour/pull/154)
-- [knative-sandbox/net-kourier](https://github.com/knative-sandbox/net-kourier/pull/84)
-- [knative-sandbox/net-http01](https://github.com/knative-sandbox/net-http01/pull/42)
-- [knative-sandbox/net-certmanager](https://github.com/knative-sandbox/net-certmanager/pull/39)
+Ask someone from the TOC to create a **release-`#`** Slack channel that will be
+used to help manage this release.
 
 ## 14 days prior to the release
+
+### Update the Knative releasability defaults
+
+Update the defaults in
+[knative-releasability.yaml](https://github.com/knative-sandbox/.github/blob/1e4e31edfb2181220db744ad0fcb135629e1cb8e/workflow-templates/knative-releasability.yaml#L37-L41)
+to this release. These changes will be propagated to the rest of Knative in the
+next round of workflow syncs.
 
 ### Announce the imminent `pkg` cut
 
@@ -112,93 +104,136 @@ additional caution should be used when merging big changes.
 
 ### Collect release-notes
 
-Make a copy of the
-[last release notes document](https://docs.google.com/document/d/1FTL_fMXU2hv2POh9uN_8IJe9FbqEIzFdRZZRXI0WaT4/edit),
-empty it out and send it to the WG leads of the respective project (serving or
+Make a new HackMD release notes document.
+[last release notes document](https://hackmd.io/cJwvzJ4eRVeqqiXzOPtxsA), empty
+it out and send it to the WG leads of the respective project (serving or
 eventing) to fill in. Coordinate with both serving and eventing leads.
 
-### Cut `release-x.y` in `test-infra`, `pkg`, `caching`, and `networking` libraries
+Each repo has a `Release Notes` GitHub Action workflow. This can be used to
+generate the starting point for the release notes. See an example in
+[Eventing](https://github.com/knative/eventing/actions?query=workflow%3A%22Release+Notes%22).
+The default starting and ending SHAs will work if running out of the `master`
+branch, or you can determin the correct starting and ending SHAs for the script
+to run.
 
-Shared dependencies like `knative/{test-infra, pkg, caching, networking}` are
-kept up-to-date nightly in each of the releasing repositories. To stabilize
-things shortly before the release we cut the `release-x.y` branches on those 7
-days prior to the main release.
+## Cutting release branches
 
-Both `pkg` and `test-infra` also need to pin each other's release branch. To do
-that, edit `hack/update-deps.sh` in the respective repo **on the newly created
-branch** to pin the respective branch. Then run
-`./hack/update-deps.sh --upgrade` and commit the changes.
+If the
+[Releasability](https://github.com/knative/serving/actions?query=workflow%3AReleasability)
+script reports a "GO", then the repo is ready to cut the `release-v.y` branch.
+This can be done by using the GitHub UI:
 
-The change to `hack/update-deps.sh` will look like this:
+1. Click on the branch selection box at the top level page of the repository.
 
-```diff
-diff --git a/hack/update-deps.sh b/hack/update-deps.sh
-index a39fc858..0634362f 100755
---- a/hack/update-deps.sh
-+++ b/hack/update-deps.sh
-@@ -26,7 +26,7 @@ cd ${ROOT_DIR}
- # The list of dependencies that we track at HEAD and periodically
- # float forward in this repository.
- FLOATING_DEPS=(
--  "knative.dev/test-infra@master"
-+  "knative.dev/test-infra@release-x.y"
- )
+   ![Click the branch selection box](images/github-branch.png)
 
- # Parse flags to determine any we should pass to dep.
+1. Search for the correct `release-x.y` branch name for the release.
+
+   ![Search for the expected release branch name](images/github-branch-search.png)
+
+1. Click "Create branch: release-x.y".
+
+   ![Click create branch: release-x.y](images/github-branch-create.png)
+
+If the Releasability script reported a "NO-GO", the repo needs to be updated.
+This can be performed by running the the
+[Knobots Auto Updates workflow](https://github.com/knative-sandbox/knobots/actions?query=workflow%3A%22Auto+Updates%22),
+or making a PR to update _master_ from the results of running a manul update
+deps:
+
+```bash
+RELEASE=0.19
+./hack/update-deps.sh --upgrade --release ${RELEASE}
 ```
 
-PR the changes to each repository respectively, prepending the PR title with
-`[RELEASE]`.
+After a `release-x.y` branch exists, a 4 hourly prow job will produce the label
+and GitHub Release. Update the description of the release with the release notes
+collected. Can't wait 4 hours?
+[Manually trigger the auto-release job.](#manually-trigger-prow-auto-release-job)
 
-After `test-infra` and `pkg` are pinned, change `caching` and `networking`'s
-`update-deps.sh` to use `release-x.y` branch of `test-infra` and `pkg`.
-Following that, cut new `release-x.y` branches for `caching` and `networking`.
+### Manual+Local Release Branch Creation
 
-### Pin `test-infra`, `pkg`, `caching`, `networking` in downstream repositories
+If you need or want to perform the release branch cutting process locally, here
+is how:
 
-Similar to how the pin between `pkg` and `test-infra` themselves work, all
-downstream users must be pinned to the newly cut `release-x.y` branches on those
-libraries. The changes to `hack/update-deps.sh` look similar to above, but in
-most cases both dependencies will need to be pinned.
+_Prerequisite_: Install the
+[**buoy** tool](https://github.com/knative/test-infra/tree/master/buoy).
 
-```diff
-diff --git a/hack/update-deps.sh b/hack/update-deps.sh
-index b277dd3ff..1989885ce 100755
---- a/hack/update-deps.sh
-+++ b/hack/update-deps.sh
-@@ -32,8 +32,8 @@ VERSION="master"
- # The list of dependencies that we track at HEAD and periodically
- # float forward in this repository.
- FLOATING_DEPS=(
--  "knative.dev/test-infra@${VERSION}"
--  "knative.dev/pkg@${VERSION}"
--  "knative.dev/caching@${VERSION}"
--  "knative.dev/networking@${VERSION}"
-+  "knative.dev/test-infra@release-x.y"
-+  "knative.dev/pkg@release-x.y"
-+  "knative.dev/caching@release-x.y"
-+  "knative.dev/networking@release-x.y"
- )
+We have staged releasibility status checks that are sent to the release Slack
+channel to give alerts when things are ready to go. You can manually run that
+for each repo before cutting the release branch,
+
+```bash
+RELEASE=0.19
+REPO=git@github.com:knative/example.git
+
+tmpdir=$(dirname $(mktemp -u))
+cd ${tmpdir}
+git clone ${REPO}
+cd "$(basename "${REPO}" .git)"
+
+if buoy check go.mod --domain knative.dev --release ${RELEASE} --verbose; then
+  git checkout -b release-${RELEASE}
+  ./hack/update-deps.sh --upgrade --release ${RELEASE}
+  # consistency check, shouldnt do anything
+  echo "There should be no changes to git:"
+  git status
+fi
 ```
 
-The downstream repositories this needs to happen on are:
+Then to push the release branch if no changes.
 
-- [knative/client](https://github.com/knative/client)
-- [knative/eventing-contrib](https://github.com/knative/eventing-contrib)
-- [knative/eventing](https://github.com/knative/eventing)
-- [knative-sandbox/eventing-kafka-broker](https://github.com/knative-sandbox/eventing-kafka-broker)
-- [knative-sandbox/net-certmanager](https://github.com/knative-sandbox/net-certmanager)
-- [knative-sandbox/net-contour](https://github.com/knative-sandbox/net-contour)
-- [knative-sandbox/net-http01](https://github.com/knative-sandbox/net-http01)
-- [knative-sandbox/net-istio](https://github.com/knative-sandbox/net-istio)
-- [knative-sandbox/net-kourier](https://github.com/knative-sandbox/net-kourier)
-- [knative/operator](https://github.com/knative/operator)
-- [knative/serving](https://github.com/knative/serving)
+```bash
+git push origin release-${RELEASE}
+```
 
-Apply the changes the the **master branches**, run
-`hack/update-deps.sh --upgrade` (and potentially `hack/update-codegen.sh` if
-necessary) and PR the changes to the **master branch**. Don't cut the release
-branch yet.
+Otherwise, make a PR to _master_ to update the repo. After that merges then try
+the above script again.
+
+> _Note_: This assumes the upstream knative github repo is a remote called
+> origin.
+
+This should be done for each repo following the dependency chain and required
+timing.
+
+### Manually trigger Prow auto-release job.
+
+1. Navigate to https://prow.knative.dev/
+
+   ![Prow homepage](images/prow-home.png)
+
+1. Search for the `*-auto-release` job for the repository.
+
+   ![Search Prow for the repo and select the auto-release](images/prow-search.png)
+
+1. Rerun the auto-release job.
+
+   ![Rerun Prow Auto Release](images/prow-rerun.png)
+
+### Cut release branches of supporting repos
+
+We need to start cutting release branches in each module that does not produce a
+release artifact, but we will do it from least dependent to most dependent.
+Follow the [cutting release branches](#cutting-release-branches) guide, starting
+with the **hack** repo:
+
+- [knative/hack](https://github.com/knative/hack)
+
+After **hack**:
+
+- [knative/pkg](https://github.com/knative/pkg)
+- [knative/test-infra](https://github.com/knative/test-infra)
+
+After **pkg**:
+
+- [knative/networking](https://github.com/knative/networking)
+- [knative/caching](https://github.com/knative/caching)
+
+Automation will propagate these updates to all the downstream repos in the next
+few cycles. The goal is to have the first wave of repo releases (**serving**,
+**eventing**, etc) to become "releasabile" by the end of the week. This is
+signaled via the Slack report of releasability posted to the **release-`#`**
+channel every morning (5am PST, M-F).
 
 ### Verify nightly release automation is intact
 
@@ -220,58 +255,66 @@ green light.
 
 ## Day of the release
 
-### Cut `release-x.y` branches of `serving` and `eventing`
+Follow the [cutting release branches](#cutting_release_branches) instructions
+for each repo. Wait for release automation to kick in (runs on a 2 hour
+interval). Once the release automation passed, it will create a release tag in
+the repository. Enhance the respective tags with the collected release-notes
+using the GitHub UI.
 
-Create a `release-x.y` branch from master in both repositories. Wait for release
-automation to kick in (runs on a 2 hour interval). Once the release automation
-passed, it will create a release tag in both repositories. Enhance the
-respective tags with the collected release-notes using the Github UI.
+In general the release dependency order is something like the following (as of
+v0.19). Note: `buoy check` will fail if the dependencies are not yet ready.
 
-### Cut `release-x.y` branches of `net-*`
+First:
 
-Cut a `release-x.y` branch in each of the following repositories which do not
-depend on `serving` or `eventing`:
-
+- [knative/serving](https://github.com/knative/serving)
 - [knative-sandbox/net-certmanager](https://github.com/knative-sandbox/net-certmanager)
 - [knative-sandbox/net-contour](https://github.com/knative-sandbox/net-contour)
 - [knative-sandbox/net-http01](https://github.com/knative-sandbox/net-http01)
 - [knative-sandbox/net-istio](https://github.com/knative-sandbox/net-istio)
 
-### Pin `serving` and `eventing` releases in dependent repositories
+- [knative/eventing](https://github.com/knative/eventing)
+- [knative-sandbox/discovery](https://github.com/knative-sandbox/discovery)
 
-**After** the tags for `serving` and `eventing` are created, their version needs
-to be pinned in all repositories that depend on them.
+- [knative-sandbox/sample-controller](https://github.com/knative-sandbox/sample-controller)
 
-For **serving** that is:
-
-- [knative-sandbox/net-kourier](https://github.com/knative-sandbox/net-kourier)
-- [knative/eventing-contrib](https://github.com/knative/eventing-contrib)
-
-For **eventing** that is:
-
-- [knative/eventing-contrib](https://github.com/knative/eventing-contrib)
-- [knative-sandbox/eventing-kafka-broker](https://github.com/knative-sandbox/eventing-kafka-broker)
-
-The pins are similar to step 5 above, but now we're pinning `serving` and
-`eventing` respectively. Again, the pin PRs are sent against the **master**
-branch of each repository respectively.
-
-### Cut `release-x.y` branches of all remaining repositories
-
-After the pin PRs are merged, cut the `release-x.y` branch in each of the
-remaining repositories (except `operator`):
+After **serving**:
 
 - [knative-sandbox/net-kourier](https://github.com/knative-sandbox/net-kourier)
-- [knative/eventing-contrib](https://github.com/knative/eventing-contrib)
+
+After **eventing**:
+
+- [knative-sandbox/eventing-awssqs](https://github.com/knative-sandbox/eventing-awssqs)
+- [knative-sandbox/eventing-camel](https://github.com/knative-sandbox/eventing-camel)
+- [knative-sandbox/eventing-ceph](https://github.com/knative-sandbox/eventing-ceph)
+- [knative-sandbox/eventing-couchdb](https://github.com/knative-sandbox/eventing-couchdb)
+- [knative-sandbox/eventing-kafka](https://github.com/knative-sandbox/eventing-kafka)
 - [knative-sandbox/eventing-kafka-broker](https://github.com/knative-sandbox/eventing-kafka-broker)
+- [knative-sandbox/eventing-natss](https://github.com/knative-sandbox/eventing-natss)
+- [knative-sandbox/eventing-prometheus](https://github.com/knative-sandbox/eventing-prometheus)
+- [knative-sandbox/eventing-rabbitmq](https://github.com/knative-sandbox/eventing-rabbitmq)
+- [knative-sandbox/sample-source](https://github.com/knative-sandbox/sample-source)
 
-Release automation will automatically pick up the branches and will likewise
-create the respective tags.
+After both **eventing** and **serving**:
 
-## Right after the release
+- [knative-sandbox/eventing-redis](https://github.com/knative-sandbox/eventing-redis)
+- [knative-sandbox/eventing-github](https://github.com/knative-sandbox/eventing-github)
+- [knative-sandbox/eventing-gitlab](https://github.com/knative-sandbox/eventing-gitlab)
+
+Lastly:
+
+- [knative-sandbox/eventing-autoscaler-keda](https://github.com/knative-sandbox/eventing-autoscaler-keda)
+
+We have a few repos inside of Knative that are not handled in the standard
+process at the moment. They might have additional dependencies or depend on the
+releases existing. **Skip these**. Special cases are:
+
+- [knative/client](https://github.com/knative/client)
+- [knative/docs](https://github.com/knative/docs)
+- [knative/website](https://github.com/knative/website)
+- [knative/operator](https://github.com/knative/operator)
+
+## After the release
 
 Send a PR like [this one](https://github.com/knative/community/pull/209) to
 grant ACLs for the next release leads, and to remove yourself from the rotation.
 Include the next release leads in the PR as a reminder.
-
----

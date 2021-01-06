@@ -123,9 +123,9 @@ func TestNewConfigNoEntry(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("Expected no errors. got: %v", err)
+		t.Error("Expected no errors. got:", err)
 	}
-	if got, want := c.LoggingConfig, defaultZLC; got != want {
+	if got, want := c.LoggingConfig, ""; got != want {
 		t.Errorf("LoggingConfig = %v, want %v", got, want)
 	}
 	if got, want := len(c.LoggingLevel), 0; got != want {
@@ -147,7 +147,7 @@ func TestNewConfig(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("Expected no errors. got: %v", err)
+		t.Error("Expected no errors. got:", err)
 	}
 	if got := c.LoggingConfig; got != wantCfg {
 		t.Errorf("LoggingConfig = %v, want %v", got, wantCfg)
@@ -181,10 +181,10 @@ func TestNewLoggerFromConfig(t *testing.T) {
 		expectLvl:  zapcore.ErrorLevel,
 		expectName: componentName,
 	}, {
-		name:       "Has default level and fallback name when config is empty",
+		name:       "Has default level when config is empty",
 		cfg:        makeTestConfig(),
 		expectLvl:  zapcore.InfoLevel,
-		expectName: "fallback-logger." + componentName,
+		expectName: componentName,
 	}}
 
 	for _, tc := range testCases {
@@ -215,10 +215,10 @@ func TestEmptyLevel(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("Expected no errors. got: %v", err)
+		t.Error("Expected no errors. got:", err)
 	}
 	if l := c.LoggingLevel["queueproxy"]; l != zapcore.InfoLevel {
-		t.Errorf("Expected default Info level for LoggingLevel[queueproxy]. got: %v", l)
+		t.Error("Expected default Info level for LoggingLevel[queueproxy]. got:", l)
 	}
 }
 
@@ -230,10 +230,10 @@ func TestDefaultLevel(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("Expected no errors. got: %v", err)
+		t.Error("Expected no errors. got:", err)
 	}
 	if l := c.LoggingLevel["queueproxy"]; l != zapcore.InfoLevel {
-		t.Errorf("Expected default Info level for LoggingLevel[queueproxy]. got: %v", l)
+		t.Error("Expected default Info level for LoggingLevel[queueproxy]. got:", l)
 	}
 }
 
@@ -407,33 +407,32 @@ func TestLoggingConfig(t *testing.T) {
 	}}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			json, err := LoggingConfigToJson(tc.cfg)
+			json, err := ConfigToJSON(tc.cfg)
 			if err != nil {
-				t.Error("error while converting logging config to json:", err)
+				t.Error("Error while converting logging config to json:", err)
 			}
 			// Test to json.
-			{
-				want := tc.want
-				got := json
+			t.Run("to JSON", func(t *testing.T) {
+				if got, want := json, tc.want; !cmp.Equal(got, want) {
+					t.Errorf("unexpected (-want, +got) =\n%s", cmp.Diff(want, got))
+				}
+			})
+			t.Run("from JSON", func(t *testing.T) {
+				want := tc.cfg
+				got, gotErr := JSONToConfig(tc.want)
+
+				if gotErr != nil {
+					if diff := cmp.Diff(tc.wantErr, gotErr.Error()); diff != "" {
+						t.Error("unexpected err (-want, +got) =", diff)
+					}
+				} else if tc.wantErr != "" {
+					t.Error("expected err", tc.wantErr)
+				}
+
 				if diff := cmp.Diff(want, got); diff != "" {
-					t.Errorf("unexpected (-want, +got) = %v", diff)
+					t.Errorf("Unexpected Config: (-want, +got) =\n%s", diff)
 				}
-			}
-			want := tc.cfg
-			got, gotErr := JsonToLoggingConfig(json)
-
-			if gotErr != nil {
-				if diff := cmp.Diff(tc.wantErr, gotErr.Error()); diff != "" {
-					t.Errorf("unexpected err (-want, +got) = %v", diff)
-				}
-			} else if tc.wantErr != "" {
-				t.Errorf("expected err %v", tc.wantErr)
-			}
-
-			if diff := cmp.Diff(want, got); diff != "" {
-				t.Errorf("unexpected (-want, +got) = %v", diff)
-				t.Log(got)
-			}
+			})
 		})
 	}
 }

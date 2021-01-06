@@ -38,10 +38,10 @@ func ExampleChooseSubset_selectOne() {
 	ret := ChooseSubset(tasks, 1, "my-key1")
 	fmt.Println(ret.UnsortedList()[0])
 
-	ret = ChooseSubset(tasks, 1, "somthing/another-key")
+	ret = ChooseSubset(tasks, 1, "something/another-key")
 	fmt.Println(ret.UnsortedList()[0])
 	// Output: task3
-	// task1
+	// task2
 }
 
 func ExampleChooseSubset_selectMany() {
@@ -70,7 +70,7 @@ func TestBuildHashes(t *testing.T) {
 	if !sort.SliceIsSorted(hd1.hashPool, func(i, j int) bool {
 		return hd1.hashPool[i] < hd1.hashPool[j]
 	}) {
-		t.Errorf("From list is not sorted: %v", hd1.hashPool)
+		t.Error("From list is not sorted:", hd1.hashPool)
 	}
 }
 

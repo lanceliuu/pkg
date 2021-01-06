@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -69,7 +68,7 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 	}
 	wh, serverURL, ctx, cancel, err := testSetup(t, ac)
 	if err != nil {
-		t.Fatalf("testSetup() = %v", err)
+		t.Fatal("testSetup() =", err)
 	}
 
 	eg, _ := errgroup.WithContext(ctx)
@@ -77,17 +76,17 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 	defer func() {
 		cancel()
 		if err := eg.Wait(); err != nil {
-			t.Errorf("Unable to run controller: %s", err)
+			t.Error("Unable to run controller:", err)
 		}
 	}()
 
 	pollErr := waitForServerAvailable(t, serverURL, testTimeout)
 	if pollErr != nil {
-		t.Fatalf("waitForServerAvailable() = %v", err)
+		t.Fatal("waitForServerAvailable() =", err)
 	}
 	tlsClient, err := createSecureTLSClient(t, wh.Client, &wh.Options)
 	if err != nil {
-		t.Fatalf("createSecureTLSClient() = %v", err)
+		t.Fatal("createSecureTLSClient() =", err)
 	}
 
 	admissionreq := &admissionv1.AdmissionRequest{
@@ -101,7 +100,7 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 	testRev := createResource("testrev")
 	marshaled, err := json.Marshal(testRev)
 	if err != nil {
-		t.Fatalf("Failed to marshal resource: %s", err)
+		t.Fatal("Failed to marshal resource:", err)
 	}
 
 	admissionreq.Resource.Group = "pkg.knative.dev"
@@ -113,19 +112,19 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 	reqBuf := new(bytes.Buffer)
 	err = json.NewEncoder(reqBuf).Encode(&rev)
 	if err != nil {
-		t.Fatalf("Failed to marshal admission review: %v", err)
+		t.Fatal("Failed to marshal admission review:", err)
 	}
 
-	u, err := url.Parse(fmt.Sprintf("https://%s", serverURL))
+	u, err := url.Parse("https://" + serverURL)
 	if err != nil {
-		t.Fatalf("bad url %v", err)
+		t.Fatal("bad url", err)
 	}
 
 	u.Path = path.Join(u.Path, ac.Path())
 
 	req, err := http.NewRequest("GET", u.String(), reqBuf)
 	if err != nil {
-		t.Fatalf("http.NewRequest() = %v", err)
+		t.Fatal("http.NewRequest() =", err)
 	}
 	req.Header.Add("Content-Type", "application/json")
 
@@ -134,7 +133,7 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 		defer close(doneCh)
 		response, err := tlsClient.Do(req)
 		if err != nil {
-			t.Errorf("Failed to get response %v", err)
+			t.Error("Failed to get response", err)
 			return
 		}
 
@@ -146,7 +145,7 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 		defer response.Body.Close()
 		responseBody, err := ioutil.ReadAll(response.Body)
 		if err != nil {
-			t.Errorf("Failed to read response body %v", err)
+			t.Error("Failed to read response body", err)
 			return
 		}
 
@@ -154,7 +153,7 @@ func TestAdmissionValidResponseForResource(t *testing.T) {
 
 		err = json.NewDecoder(bytes.NewReader(responseBody)).Decode(&reviewResponse)
 		if err != nil {
-			t.Errorf("Failed to decode response: %v", err)
+			t.Error("Failed to decode response:", err)
 			return
 		}
 
@@ -192,7 +191,7 @@ func TestAdmissionInvalidResponseForResource(t *testing.T) {
 	}
 	wh, serverURL, ctx, cancel, err := testSetup(t, ac)
 	if err != nil {
-		t.Fatalf("testSetup() = %v", err)
+		t.Fatal("testSetup() =", err)
 	}
 
 	eg, _ := errgroup.WithContext(ctx)
@@ -201,17 +200,17 @@ func TestAdmissionInvalidResponseForResource(t *testing.T) {
 	defer func() {
 		cancel()
 		if err := eg.Wait(); err != nil {
-			t.Errorf("Unable to run controller: %s", err)
+			t.Error("Unable to run controller:", err)
 		}
 	}()
 
 	pollErr := waitForServerAvailable(t, serverURL, testTimeout)
 	if pollErr != nil {
-		t.Fatalf("waitForServerAvailable() = %v", err)
+		t.Fatal("waitForServerAvailable() =", err)
 	}
 	tlsClient, err := createSecureTLSClient(t, wh.Client, &wh.Options)
 	if err != nil {
-		t.Fatalf("createSecureTLSClient() = %v", err)
+		t.Fatal("createSecureTLSClient() =", err)
 	}
 
 	resource := createResource(testResourceName)
@@ -219,7 +218,7 @@ func TestAdmissionInvalidResponseForResource(t *testing.T) {
 	resource.Spec.FieldWithValidation = "not the right value"
 	marshaled, err := json.Marshal(resource)
 	if err != nil {
-		t.Fatalf("Failed to marshal resource: %s", err)
+		t.Fatal("Failed to marshal resource:", err)
 	}
 
 	admissionreq := &admissionv1.AdmissionRequest{
@@ -243,26 +242,26 @@ func TestAdmissionInvalidResponseForResource(t *testing.T) {
 	reqBuf := new(bytes.Buffer)
 	err = json.NewEncoder(reqBuf).Encode(&rev)
 	if err != nil {
-		t.Fatalf("Failed to marshal admission review: %v", err)
+		t.Fatal("Failed to marshal admission review:", err)
 	}
 
-	u, err := url.Parse(fmt.Sprintf("https://%s", serverURL))
+	u, err := url.Parse("https://" + serverURL)
 	if err != nil {
-		t.Fatalf("bad url %v", err)
+		t.Fatal("bad url", err)
 	}
 
 	u.Path = path.Join(u.Path, ac.Path())
 
 	req, err := http.NewRequest("GET", u.String(), reqBuf)
 	if err != nil {
-		t.Fatalf("http.NewRequest() = %v", err)
+		t.Fatal("http.NewRequest() =", err)
 	}
 
 	req.Header.Add("Content-Type", "application/json")
 
 	response, err := tlsClient.Do(req)
 	if err != nil {
-		t.Fatalf("Failed to receive response %v", err)
+		t.Fatal("Failed to receive response", err)
 	}
 
 	if got, want := response.StatusCode, http.StatusOK; got != want {
@@ -272,20 +271,20 @@ func TestAdmissionInvalidResponseForResource(t *testing.T) {
 	defer response.Body.Close()
 	respBody, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		t.Fatalf("Failed to read response body %v", err)
+		t.Fatal("Failed to read response body", err)
 	}
 
 	reviewResponse := admissionv1.AdmissionReview{}
 
 	err = json.NewDecoder(bytes.NewReader(respBody)).Decode(&reviewResponse)
 	if err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+		t.Fatal("Failed to decode response:", err)
 	}
 
 	var respPatch []jsonpatch.JsonPatchOperation
 	err = json.Unmarshal(reviewResponse.Response.Patch, &respPatch)
 	if err == nil {
-		t.Fatalf("Expected to fail JSON unmarshal of resposnse")
+		t.Fatalf("Expected to fail JSON unmarshal of response")
 	}
 
 	if got, want := reviewResponse.Response.Result.Status, "Failure"; got != want {
@@ -293,7 +292,7 @@ func TestAdmissionInvalidResponseForResource(t *testing.T) {
 	}
 
 	if !strings.Contains(reviewResponse.Response.Result.Message, expectedError) {
-		t.Errorf("Received unexpected response status message %s", reviewResponse.Response.Result.Message)
+		t.Error("Received unexpected response status message", reviewResponse.Response.Result.Message)
 	}
 
 	// Stats should be reported for requests that have admission disallowed

@@ -26,6 +26,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	jsonpatch "gomodules.xyz/jsonpatch/v2"
+	fakek8s "k8s.io/client-go/kubernetes/fake"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/client/injection/ducks/duck/v1/podspecable"
 	kubeclient "knative.dev/pkg/client/injection/kube/client/fake"
@@ -90,7 +91,7 @@ func checkDeploymentIsPatched(t *testing.T, r *TableRow) {
 	}
 	b, err := json.Marshal(d)
 	if err != nil {
-		t.Fatalf("Unable to serialize deployment: %v", err)
+		t.Fatal("Unable to serialize deployment:", err)
 	}
 
 	req := &admissionv1.AdmissionRequest{
@@ -145,7 +146,7 @@ func checkDeploymentIsPatchedBack(t *testing.T, r *TableRow) {
 	}
 	b, err := json.Marshal(d)
 	if err != nil {
-		t.Fatalf("Unable to serialize deployment: %v", err)
+		t.Fatal("Unable to serialize deployment:", err)
 	}
 
 	req := &admissionv1.AdmissionRequest{
@@ -192,7 +193,7 @@ func checkDeploymentIsNotPatched(t *testing.T, r *TableRow) {
 	}
 	b, err := json.Marshal(d)
 	if err != nil {
-		t.Fatalf("Unable to serialize deployment: %v", err)
+		t.Fatal("Unable to serialize deployment:", err)
 	}
 
 	req := &admissionv1.AdmissionRequest{
@@ -238,7 +239,7 @@ func checkDeleteIgnored(t *testing.T, r *TableRow) {
 	}
 	b, err := json.Marshal(d)
 	if err != nil {
-		t.Fatalf("Unable to serialize deployment: %v", err)
+		t.Fatal("Unable to serialize deployment:", err)
 	}
 
 	req := &admissionv1.AdmissionRequest{
@@ -1049,7 +1050,7 @@ func TestNew(t *testing.T) {
 	}
 
 	if err := la.Promote(pkgreconciler.UniversalBucket(), c.MaybeEnqueueBucketKey); err != nil {
-		t.Errorf("Promote() = %v", err)
+		t.Error("Promote() =", err)
 	}
 
 	// Queue has async moving parts so if we check at the wrong moment, this might still be 0.
@@ -1517,7 +1518,7 @@ func TestBaseReconcile(t *testing.T) {
 							Type:   "Ready",
 							Status: "False",
 							Reason: "SubjectUnavailable",
-							// prefix comes from apiserrs.NewForbidden
+							// prefix comes from apierrs.NewForbidden
 							Message: "forbidden: some-error",
 						}},
 					},
@@ -2008,6 +2009,188 @@ func TestBaseReconcile(t *testing.T) {
 	}))
 }
 
+func TestBaseReconcileWithSubResourcesReconciler(t *testing.T) {
+	table := TableTest{{
+		Name: "create new subresource",
+		Key:  "foo/bar",
+		Objects: []runtime.Object{
+			&TestBindable{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:  "foo",
+					Name:       "bar",
+					Finalizers: []string{"testbindables.duck.knative.dev"},
+				},
+				Spec: TestBindableSpec{
+					BindingSpec: duckv1alpha1.BindingSpec{
+						Subject: tracker.Reference{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Namespace:  "foo",
+							Name:       "on-it",
+						},
+					},
+					Foo: "asdfasdfasdfasdf",
+				},
+				Status: TestBindableStatus{
+					Status: duckv1.Status{
+						Conditions: []apis.Condition{{
+							Type:   "Ready",
+							Status: "True",
+						}},
+					},
+				},
+			},
+			&appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "foo",
+					Name:      "on-it",
+				},
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name:  "foo",
+								Image: "busybox",
+								Env: []corev1.EnvVar{{
+									Name:  "FOO",
+									Value: "asdfasdfasdfasdf",
+								}},
+							}},
+						},
+					},
+				},
+			},
+			&corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo",
+				},
+			},
+		},
+		WantPatches: []clientgotesting.PatchActionImpl{
+			patchAddLabel("foo"),
+		},
+		WantCreates: []runtime.Object{
+			&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "bar",
+				},
+			},
+		},
+	},
+		{
+			Name: "delete resource and subresource",
+			Key:  "foo/bar",
+			Objects: []runtime.Object{
+				&TestBindable{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:         "foo",
+						DeletionTimestamp: &metav1.Time{Time: time.Now()},
+						Name:              "bar",
+						Finalizers:        []string{"testbindables.duck.knative.dev"},
+					},
+					Spec: TestBindableSpec{
+						BindingSpec: duckv1alpha1.BindingSpec{
+							Subject: tracker.Reference{
+								APIVersion: "apps/v1",
+								Kind:       "Deployment",
+								Namespace:  "foo",
+								Name:       "on-it",
+							},
+						},
+						Foo: "asdfasdfasdfasdf",
+					},
+					Status: TestBindableStatus{
+						Status: duckv1.Status{
+							Conditions: []apis.Condition{{
+								Type:   "Ready",
+								Status: "True",
+							}},
+						},
+					},
+				},
+				&appsv1.Deployment{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "foo",
+						Name:      "on-it",
+					},
+					Spec: appsv1.DeploymentSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "foo",
+									Image: "busybox",
+									Env: []corev1.EnvVar{{
+										Name:  "FOO",
+										Value: "asdfasdfasdfasdf",
+									}},
+								}},
+							},
+						},
+					},
+				},
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo",
+					},
+				},
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "bar",
+						Namespace: "foo",
+					},
+				},
+			},
+			WantPatches: []clientgotesting.PatchActionImpl{
+				patchAddLabel("foo"),
+				patchRemoveEnv("foo", "on-it"),
+				patchRemoveFinalizer("foo", "bar", "" /* resource version */),
+			},
+			WantDeletes: []clientgotesting.DeleteActionImpl{
+				deletedConfigmap("foo", "bar"),
+			},
+		},
+	}
+
+	table.Test(t, MakeFactory(func(ctx context.Context, listers *Listers, cmw configmap.Watcher) controller.Reconciler {
+		gvr := SchemeGroupVersion.WithResource("testbindables")
+		ctx = podspecable.WithDuck(ctx)
+
+		dc := dynamicclient.Get(ctx)
+
+		kc := kubeclient.Get(ctx)
+		srr := &fakeSubResourcesReconciler{
+			client: kc,
+		}
+		return &BaseReconciler{
+			GVR: gvr,
+
+			DynamicClient: dc,
+			Factory:       podspecable.Get(ctx),
+
+			Tracker: &FakeTracker{},
+
+			Recorder: record.NewFakeRecorder(20),
+
+			Get: func(namespace, name string) (Bindable, error) {
+				for _, elt := range listers.GetDuckObjects() {
+					b, ok := elt.(*TestBindable)
+					if !ok {
+						continue
+					}
+					if b.Namespace != namespace || b.Name != name {
+						continue
+					}
+					return b, nil
+				}
+				return nil, apierrs.NewNotFound(gvr.GroupResource(), name)
+			},
+			NamespaceLister: listers.GetNamespaceLister(),
+
+			SubResourcesReconciler: srr,
+		}
+	}))
+}
+
 func mustTU(t *testing.T, ro duck.OneOfOurs) *unstructured.Unstructured {
 	u, err := duck.ToUnstructured(ro)
 	if err != nil {
@@ -2079,4 +2262,41 @@ func patchRemoveEnv(namespace, name string) clientgotesting.PatchActionImpl {
 
 	action.Patch = []byte(patch)
 	return action
+}
+
+func deletedConfigmap(namespace string, name string) clientgotesting.DeleteActionImpl {
+	action := clientgotesting.DeleteActionImpl{}
+	resource := schema.GroupVersionResource{
+		Group:    "core",
+		Version:  "v1",
+		Resource: "configmaps",
+	}
+	actionImpl := clientgotesting.ActionImpl{
+		Namespace:   namespace,
+		Verb:        "delete",
+		Resource:    resource,
+		Subresource: "",
+	}
+	action.ActionImpl = actionImpl
+	action.Name = name
+	return action
+}
+
+type fakeSubResourcesReconciler struct {
+	client *fakek8s.Clientset
+}
+
+func (d *fakeSubResourcesReconciler) Reconcile(ctx context.Context, fb Bindable) error {
+	cfg := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fb.GetName(),
+		},
+	}
+
+	_, err := d.client.CoreV1().ConfigMaps(fb.GetNamespace()).Create(ctx, &cfg, metav1.CreateOptions{})
+	return err
+}
+
+func (d *fakeSubResourcesReconciler) ReconcileDeletion(ctx context.Context, fb Bindable) error {
+	return d.client.CoreV1().ConfigMaps(fb.GetNamespace()).Delete(ctx, fb.GetName(), metav1.DeleteOptions{})
 }

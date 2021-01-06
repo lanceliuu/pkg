@@ -94,7 +94,7 @@ func errConnFactory(err error) func() (rawConnection, error) {
 }
 
 func TestRetriesWhileConnect(t *testing.T) {
-	wantConnects := 2
+	const wantConnects = 2
 	gotConnects := 0
 
 	spy := &inspectableConnection{
@@ -128,7 +128,7 @@ func TestRetriesWhileConnect(t *testing.T) {
 	}
 
 	if len(spy.closeCalls) != 1 {
-		t.Fatalf("Wanted 'Close' to be called once, but got %v", len(spy.closeCalls))
+		t.Fatal("Wanted 'Close' to be called once, but got", len(spy.closeCalls))
 	}
 }
 
@@ -138,7 +138,7 @@ func TestSendErrorOnNoConnection(t *testing.T) {
 	conn := &ManagedConnection{}
 	got := conn.Send("test")
 
-	if got != want {
+	if !errors.Is(got, want) {
 		t.Fatalf("Wanted error to be %v, but it was %v.", want, got)
 	}
 }
@@ -149,7 +149,7 @@ func TestStatusOnNoConnection(t *testing.T) {
 	conn := &ManagedConnection{}
 	got := conn.Status()
 
-	if got != want {
+	if !errors.Is(got, want) {
 		t.Fatalf("Wanted error to be %v, but it was %v.", want, got)
 	}
 }
@@ -241,7 +241,7 @@ func TestCloseClosesConnection(t *testing.T) {
 	conn.Shutdown()
 
 	if len(spy.closeCalls) != 1 {
-		t.Fatalf("Expected 'Close' to be called once, got %v", len(spy.closeCalls))
+		t.Fatal("Expected 'Close' to be called once, got", len(spy.closeCalls))
 	}
 }
 
@@ -252,7 +252,7 @@ func TestCloseIgnoresNoConnection(t *testing.T) {
 	got := conn.Shutdown()
 
 	if got != nil {
-		t.Fatalf("Expected no error, got %v", got)
+		t.Fatal("Expected no error, got", got)
 	}
 }
 
@@ -290,7 +290,7 @@ func TestConnectLoopIsStopped(t *testing.T) {
 
 	select {
 	case err := <-errorChan:
-		if err != errShuttingDown {
+		if !errors.Is(err, errShuttingDown) {
 			t.Errorf("Wrong 'connect' error, got %v, want %v", err, errShuttingDown)
 		}
 	case <-time.After(propagationTimeout):
@@ -316,7 +316,7 @@ func TestKeepaliveLoopIsStopped(t *testing.T) {
 
 	select {
 	case err := <-errorChan:
-		if err != errShuttingDown {
+		if !errors.Is(err, errShuttingDown) {
 			t.Errorf("Wrong 'keepalive' error, got %v, want %v", err, errShuttingDown)
 		}
 	case <-time.After(propagationTimeout):
@@ -369,7 +369,7 @@ func TestDurableConnectionWhenConnectionBreaksDown(t *testing.T) {
 		})
 
 		if err != nil {
-			t.Errorf("Timed out trying to send a message: %v", err)
+			t.Error("Timed out trying to send a message:", err)
 		}
 
 		// Message successfully sent, instruct the server to drop the connection.
@@ -419,16 +419,43 @@ func TestDurableConnectionSendsPingsRegularly(t *testing.T) {
 	}
 }
 
-func TestIsEstablished(t *testing.T) {
-	c := &ManagedConnection{}
-	if got, want := c.IsEstablished(), false; got != want {
-		t.Errorf("IsEstablished() = %v, want = %v", got, want)
+func TestNewDurableSendingConnectionGuaranteed(t *testing.T) {
+	// Unhappy case.
+	logger := ktesting.TestLogger(t)
+	_, err := NewDurableSendingConnectionGuaranteed("ws://somewhere.not.exist", time.Second, logger)
+	if got, want := err.Error(), ErrConnectionNotEstablished.Error(); got != want {
+		t.Errorf("Got error: %v, want error: %v", got, want)
 	}
 
-	c.connection = &inspectableConnection{
-		writeMessageCalls: make(chan struct{}, 1),
+	// Happy case.
+	const testPayload = "test"
+	reconnectChan := make(chan struct{})
+	upgrader := websocket.Upgrader{}
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		// Waits for a message to be sent before dropping the connection.
+		<-reconnectChan
+		c.Close()
+	}))
+	defer s.Close()
+
+	target := "ws" + strings.TrimPrefix(s.URL, "http")
+	conn, err := NewDurableSendingConnectionGuaranteed(target, time.Second, logger)
+	if err != nil {
+		t.Error("Got error from NewDurableSendingConnectionGuaranteed:", err)
 	}
-	if got, want := c.IsEstablished(), true; got != want {
-		t.Errorf("IsEstablished() = %v, want = %v", got, want)
+	defer conn.Shutdown()
+
+	// Sending the message immediately should be fine as the connection has been established.
+	if err := conn.Send(testPayload); err != nil {
+		t.Error("Failed to send a message:", err)
 	}
+
+	// Message successfully sent, instruct the server to drop the connection.
+	reconnectChan <- struct{}{}
+
 }

@@ -1,3 +1,5 @@
+// +build !nostackdriver
+
 /*
 Copyright 2018 The Knative Authors
 
@@ -47,7 +49,6 @@ const (
 	eventingDomain         = "knative.dev/eventing"
 	internalEventingDomain = "knative.dev/internal/eventing"
 	customSubDomain        = "test.domain"
-	testComponent          = "testComponent"
 	testProj               = "test-project"
 	anotherProj            = "another-project"
 )
@@ -81,7 +82,6 @@ var (
 			ConfigMap: map[string]string{
 				BackendDestinationKey: string(prometheus),
 			},
-			Domain:    "",
 			Component: testComponent,
 		},
 		expectedErr: "metrics domain cannot be empty",
@@ -91,8 +91,7 @@ var (
 			ConfigMap: map[string]string{
 				BackendDestinationKey: string(openCensus),
 			},
-			Domain:    servingDomain,
-			Component: "",
+			Domain: servingDomain,
 		},
 		expectedErr: "metrics component name cannot be empty",
 	}, {
@@ -189,6 +188,7 @@ var (
 			backendDestination: prometheus,
 			reportingPeriod:    5 * time.Second,
 			prometheusPort:     defaultPrometheusPort,
+			prometheusHost:     defaultPrometheusHost,
 		},
 		expectedNewExporter: true,
 	}, {
@@ -262,7 +262,7 @@ var (
 		ops: ExporterOptions{
 			ConfigMap: map[string]string{
 				BackendDestinationKey: string(openCensus),
-				collectorAddressKey:   "external-svc:55678",
+				collectorAddressKey:   "localhost:55678",
 				collectorSecureKey:    "true",
 			},
 			Domain:    servingDomain,
@@ -282,7 +282,7 @@ var (
 			component:          testComponent,
 			backendDestination: openCensus,
 			reportingPeriod:    time.Minute,
-			collectorAddress:   "external-svc:55678",
+			collectorAddress:   "localhost:55678",
 			requireSecure:      true,
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -310,6 +310,7 @@ var (
 			backendDestination: prometheus,
 			reportingPeriod:    5 * time.Second,
 			prometheusPort:     defaultPrometheusPort,
+			prometheusHost:     defaultPrometheusHost,
 		},
 		expectedNewExporter: true,
 	}, {
@@ -351,6 +352,7 @@ var (
 			backendDestination: prometheus,
 			reportingPeriod:    12 * time.Second,
 			prometheusPort:     defaultPrometheusPort,
+			prometheusHost:     defaultPrometheusHost,
 		},
 		expectedNewExporter: true,
 	}, {
@@ -433,6 +435,7 @@ var (
 			backendDestination: prometheus,
 			reportingPeriod:    5 * time.Second,
 			prometheusPort:     defaultPrometheusPort,
+			prometheusHost:     defaultPrometheusHost,
 		},
 		expectedNewExporter: true,
 	}, {
@@ -523,6 +526,7 @@ var (
 			backendDestination: prometheus,
 			reportingPeriod:    5 * time.Second,
 			prometheusPort:     9091,
+			prometheusHost:     defaultPrometheusHost,
 		},
 		expectedNewExporter: true,
 	}}
@@ -533,11 +537,12 @@ func successTestsInit() {
 }
 
 func TestGetMetricsConfig(t *testing.T) {
+	ctx := context.Background()
 	for _, test := range errorTests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := createMetricsConfig(test.ops, TestLogger(t))
+			_, err := createMetricsConfig(ctx, test.ops)
 			if err == nil || err.Error() != test.expectedErr {
-				t.Errorf("Wanted err: %v, got: %v", test.expectedErr, err)
+				t.Errorf("Err = %v, want: %v", err, test.expectedErr)
 			}
 		})
 	}
@@ -545,7 +550,7 @@ func TestGetMetricsConfig(t *testing.T) {
 	successTestsInit()
 	for _, test := range successTests {
 		t.Run(test.name, func(t *testing.T) {
-			mc, err := createMetricsConfig(test.ops, TestLogger(t))
+			mc, err := createMetricsConfig(ctx, test.ops)
 			if err != nil {
 				t.Errorf("Wanted valid config %v, got error %v", test.expectedConfig, err)
 			}
@@ -596,6 +601,7 @@ func TestGetMetricsConfig_fromEnv(t *testing.T) {
 			backendDestination: prometheus,
 			reportingPeriod:    5 * time.Second,
 			prometheusPort:     defaultPrometheusPort,
+			prometheusHost:     defaultPrometheusHost,
 		},
 	}, {
 		name:     "PrometheusPort from env",
@@ -612,6 +618,7 @@ func TestGetMetricsConfig_fromEnv(t *testing.T) {
 			backendDestination: prometheus,
 			reportingPeriod:    5 * time.Second,
 			prometheusPort:     9999,
+			prometheusHost:     defaultPrometheusHost,
 		},
 	}}
 
@@ -633,12 +640,14 @@ func TestGetMetricsConfig_fromEnv(t *testing.T) {
 		expectedErrContains: "value out of range",
 	}}
 
+	ctx := context.Background()
+
 	for _, test := range successTests {
 		t.Run(test.name, func(t *testing.T) {
 			os.Setenv(test.varName, test.varValue)
 			defer os.Unsetenv(test.varName)
 
-			mc, err := createMetricsConfig(test.ops, TestLogger(t))
+			mc, err := createMetricsConfig(ctx, test.ops)
 			if err != nil {
 				t.Errorf("Wanted valid config %v, got error %v", test.expectedConfig, err)
 			}
@@ -653,9 +662,9 @@ func TestGetMetricsConfig_fromEnv(t *testing.T) {
 			os.Setenv(test.varName, test.varValue)
 			defer os.Unsetenv(test.varName)
 
-			mc, err := createMetricsConfig(test.ops, TestLogger(t))
+			mc, err := createMetricsConfig(ctx, test.ops)
 			if mc != nil {
-				t.Errorf("Wanted no config, got %v", mc)
+				t.Error("Wanted no config, got", mc)
 			}
 			if err == nil || !strings.Contains(err.Error(), test.expectedErrContains) {
 				t.Errorf("Wanted err to contain: %q, got: %v", test.expectedErrContains, err)
@@ -667,9 +676,11 @@ func TestGetMetricsConfig_fromEnv(t *testing.T) {
 func TestIsNewExporterRequiredFromNilConfig(t *testing.T) {
 	setCurMetricsConfig(nil)
 	successTestsInit()
+	ctx := context.Background()
+
 	for _, test := range successTests {
 		t.Run(test.name, func(t *testing.T) {
-			mc, err := createMetricsConfig(test.ops, TestLogger(t))
+			mc, err := createMetricsConfig(ctx, test.ops)
 			if err != nil {
 				t.Errorf("Wanted valid config %v, got error %v", test.expectedConfig, err)
 			}
@@ -794,9 +805,11 @@ func TestUpdateExporter(t *testing.T) {
 	setCurMetricsConfig(nil)
 	oldConfig := getCurMetricsConfig()
 	successTestsInit()
+	ctx := context.Background()
+
 	for _, test := range successTests[1:] {
 		t.Run(test.name, func(t *testing.T) {
-			UpdateExporter(test.ops, TestLogger(t))
+			UpdateExporter(ctx, test.ops, TestLogger(t))
 			mConfig := getCurMetricsConfig()
 			if mConfig == oldConfig {
 				t.Error("Expected metrics config change")
@@ -810,7 +823,7 @@ func TestUpdateExporter(t *testing.T) {
 
 	for _, test := range errorTests {
 		t.Run(test.name, func(t *testing.T) {
-			UpdateExporter(test.ops, TestLogger(t))
+			UpdateExporter(ctx, test.ops, TestLogger(t))
 			mConfig := getCurMetricsConfig()
 			if mConfig != oldConfig {
 				t.Error("mConfig should not change")
@@ -823,6 +836,8 @@ func TestUpdateExporterFromConfigMapWithOpts(t *testing.T) {
 	setCurMetricsConfig(nil)
 	oldConfig := getCurMetricsConfig()
 	successTestsInit()
+	ctx := context.Background()
+
 	for _, test := range successTests[1:] {
 		t.Run(test.name, func(t *testing.T) {
 			opts := ExporterOptions{
@@ -831,9 +846,9 @@ func TestUpdateExporterFromConfigMapWithOpts(t *testing.T) {
 				PrometheusPort: test.ops.PrometheusPort,
 				Secrets:        test.ops.Secrets,
 			}
-			updateFunc, err := UpdateExporterFromConfigMapWithOpts(opts, TestLogger(t))
+			updateFunc, err := UpdateExporterFromConfigMapWithOpts(ctx, opts, TestLogger(t))
 			if err != nil {
-				t.Errorf("failed to call UpdateExporterFromConfigMapWithOpts: %v", err)
+				t.Error("failed to call UpdateExporterFromConfigMapWithOpts:", err)
 			}
 			updateFunc(&corev1.ConfigMap{Data: test.ops.ConfigMap})
 			mConfig := getCurMetricsConfig()
@@ -854,7 +869,7 @@ func TestUpdateExporterFromConfigMapWithOpts(t *testing.T) {
 			PrometheusPort: defaultPrometheusPort,
 			ConfigMap:      map[string]string{"some": "data"},
 		}
-		_, err := UpdateExporterFromConfigMapWithOpts(opts, TestLogger(t))
+		_, err := UpdateExporterFromConfigMapWithOpts(ctx, opts, TestLogger(t))
 		if err == nil {
 			t.Error("got err=nil want err")
 		}
@@ -866,7 +881,7 @@ func TestUpdateExporterFromConfigMapWithOpts(t *testing.T) {
 			Domain:         servingDomain,
 			PrometheusPort: defaultPrometheusPort,
 		}
-		_, err := UpdateExporterFromConfigMapWithOpts(opts, TestLogger(t))
+		_, err := UpdateExporterFromConfigMapWithOpts(ctx, opts, TestLogger(t))
 		if err == nil {
 			t.Error("got err=nil want err")
 		}
@@ -875,9 +890,11 @@ func TestUpdateExporterFromConfigMapWithOpts(t *testing.T) {
 
 func TestUpdateExporter_doesNotCreateExporter(t *testing.T) {
 	setCurMetricsConfig(nil)
+	ctx := context.Background()
+
 	for _, test := range errorTests {
 		t.Run(test.name, func(t *testing.T) {
-			UpdateExporter(test.ops, TestLogger(t))
+			UpdateExporter(ctx, test.ops, TestLogger(t))
 			mConfig := getCurMetricsConfig()
 			if mConfig != nil {
 				t.Error("mConfig should not be created")
@@ -902,44 +919,45 @@ func TestMetricsOptions(t *testing.T) {
 				Domain:         "domain",
 				Component:      "component",
 				PrometheusPort: 9090,
+				PrometheusHost: "0.0.0.0",
 				ConfigMap: map[string]string{
 					"foo":   "bar",
 					"boosh": "kakow",
 				},
 			},
-			want: `{"Domain":"domain","Component":"component","PrometheusPort":9090,"ConfigMap":{"boosh":"kakow","foo":"bar"}}`,
+			want: `{"Domain":"domain","Component":"component","PrometheusPort":9090,"PrometheusHost":"0.0.0.0","ConfigMap":{"boosh":"kakow","foo":"bar"}}`,
 		},
 	}
 	for n, tc := range testCases {
 		t.Run(n, func(t *testing.T) {
-			jsonOpts, err := MetricsOptionsToJson(tc.opts)
+			jsonOpts, err := OptionsToJSON(tc.opts)
 			if err != nil {
-				t.Errorf("error while converting metrics config to json: %v", err)
+				t.Error("error while converting metrics config to json:", err)
 			}
 			// Test to json.
 			{
 				want := tc.want
 				got := jsonOpts
 				if diff := cmp.Diff(want, got); diff != "" {
-					t.Errorf("unexpected (-want, +got) = %v", diff)
+					t.Error("unexpected (-want, +got) =", diff)
 					t.Log(got)
 				}
 			}
 			// Test to options.
 			{
 				want := tc.opts
-				got, gotErr := JsonToMetricsOptions(jsonOpts)
+				got, gotErr := JSONToOptions(jsonOpts)
 
 				if gotErr != nil {
 					if diff := cmp.Diff(tc.wantErr, gotErr.Error()); diff != "" {
-						t.Errorf("unexpected err (-want, +got) = %v", diff)
+						t.Error("unexpected err (-want, +got) =", diff)
 					}
 				} else if tc.wantErr != "" {
-					t.Errorf("expected err %v", tc.wantErr)
+					t.Error("expected err", tc.wantErr)
 				}
 
 				if diff := cmp.Diff(want, got); diff != "" {
-					t.Errorf("unexpected (-want, +got) = %v", diff)
+					t.Error("unexpected (-want, +got) =", diff)
 					t.Log(got)
 				}
 			}
@@ -1041,7 +1059,7 @@ func TestStackdriverRecord(t *testing.T) {
 				Domain:    "knative.dev/internal/serving",
 				Component: "activator",
 			}
-			mc, err := createMetricsConfig(opts, TestLogger(t))
+			mc, err := createMetricsConfig(context.Background(), opts)
 			if err != nil {
 				t.Errorf("Expected valid config %+v, got error: %v\n", opts, err)
 			}

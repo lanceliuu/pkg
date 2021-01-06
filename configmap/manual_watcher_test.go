@@ -17,18 +17,41 @@ limitations under the License.
 package configmap
 
 import (
+	"sync"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type counter struct {
+	name string
+	mu   sync.RWMutex
+	cfg  []*corev1.ConfigMap
+	wg   *sync.WaitGroup
+}
+
+func (c *counter) callback(cm *corev1.ConfigMap) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg = append(c.cfg, cm)
+	if c.wg != nil {
+		c.wg.Done()
+	}
+}
+
+func (c *counter) count() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.cfg)
+}
+
 func TestManualStartNOOP(t *testing.T) {
 	watcher := ManualWatcher{
 		Namespace: "default",
 	}
 	if err := watcher.Start(nil); err != nil {
-		t.Errorf("Unexpected error watcher.Start() = %v", err)
+		t.Error("Unexpected error watcher.Start() =", err)
 	}
 }
 
@@ -55,7 +78,7 @@ func TestCallbackInvoked(t *testing.T) {
 	})
 
 	if observer.count() == 0 {
-		t.Errorf("Expected callback to be invoked - got invocations %v", observer.count())
+		t.Error("Expected callback to be invoked - got invocations", observer.count())
 	}
 }
 
@@ -75,7 +98,7 @@ func TestDifferentNamespace(t *testing.T) {
 	})
 
 	if observer.count() != 0 {
-		t.Errorf("Expected callback to be not be invoked - got invocations %v", observer.count())
+		t.Error("Expected callback to be not be invoked - got invocations", observer.count())
 	}
 }
 
@@ -96,6 +119,6 @@ func TestDifferentConfigName(t *testing.T) {
 	watcher.Watch("bar", observer.callback)
 
 	if observer.count() != 0 {
-		t.Errorf("Expected callback to be not be invoked - got invocations %v", observer.count())
+		t.Error("Expected callback to be not be invoked - got invocations", observer.count())
 	}
 }

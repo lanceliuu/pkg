@@ -46,7 +46,7 @@ type testClient struct {
 	clientset v1.CoreV1Interface
 }
 
-func NewTestClient(objects ...runtime.Object) *testClient {
+func newTestClient(objects ...runtime.Object) *testClient {
 	tc := testClient{}
 	cs := fake.NewSimpleClientset(objects...)
 	cs.PrependReactor("create", "*", func(action clientgotesting.Action) (handled bool, ret runtime.Object, err error) {
@@ -64,11 +64,11 @@ func NewTestClient(objects ...runtime.Object) *testClient {
 }
 
 func TestInitCreates(t *testing.T) {
-	tc := NewTestClient()
+	tc := newTestClient()
 	cs := NewConfigMapKVStore(context.Background(), name, namespace, tc.clientset)
 	err := cs.Init(context.Background())
 	if err != nil {
-		t.Errorf("Failed to Init ConfigStore: %v", err)
+		t.Error("Failed to Init ConfigStore:", err)
 	}
 	if tc.created == nil {
 		t.Errorf("ConfigMap not created")
@@ -82,18 +82,18 @@ func TestInitCreates(t *testing.T) {
 }
 
 func TestLoadNonexisting(t *testing.T) {
-	tc := NewTestClient()
+	tc := newTestClient()
 	if NewConfigMapKVStore(context.Background(), name, namespace, tc.clientset).Load(context.Background()) == nil {
 		t.Error("non-existent store load didn't fail")
 	}
 }
 
 func TestInitLoads(t *testing.T) {
-	tc := NewTestClient([]runtime.Object{configMap(map[string]string{"foo": marshal(t, "bar")})}...)
+	tc := newTestClient([]runtime.Object{configMap(map[string]string{"foo": marshal(t, "bar")})}...)
 	cs := NewConfigMapKVStore(context.Background(), name, namespace, tc.clientset)
 	err := cs.Init(context.Background())
 	if err != nil {
-		t.Errorf("Failed to Init ConfigStore: %v", err)
+		t.Error("Failed to Init ConfigStore:", err)
 	}
 	if tc.created != nil {
 		t.Errorf("ConfigMap created")
@@ -104,7 +104,7 @@ func TestInitLoads(t *testing.T) {
 	var ret string
 	err = cs.Get(context.Background(), "foo", &ret)
 	if err != nil {
-		t.Errorf("failed to return string: %v", err)
+		t.Error("failed to return string:", err)
 	}
 	if ret != "bar" {
 		t.Errorf("got back unexpected value, wanted %q got %q", "bar", ret)
@@ -115,11 +115,11 @@ func TestInitLoads(t *testing.T) {
 }
 
 func TestLoadSaveUpdate(t *testing.T) {
-	tc := NewTestClient([]runtime.Object{configMap(map[string]string{"foo": marshal(t, "bar")})}...)
+	tc := newTestClient([]runtime.Object{configMap(map[string]string{"foo": marshal(t, "bar")})}...)
 	cs := NewConfigMapKVStore(context.Background(), name, namespace, tc.clientset)
 	err := cs.Init(context.Background())
 	if err != nil {
-		t.Errorf("Failed to Init ConfigStore: %v", err)
+		t.Error("Failed to Init ConfigStore:", err)
 	}
 	cs.Set(context.Background(), "jimmy", "otherbar")
 	cs.Save(context.Background())
@@ -129,10 +129,10 @@ func TestLoadSaveUpdate(t *testing.T) {
 	var ret string
 	err = cs.Get(context.Background(), "jimmy", &ret)
 	if err != nil {
-		t.Errorf("failed to return string: %v", err)
+		t.Error("failed to return string:", err)
 	}
 	if err != nil {
-		t.Errorf("failed to return string: %v", err)
+		t.Error("failed to return string:", err)
 	}
 	if ret != "otherbar" {
 		t.Errorf("got back unexpected value, wanted %q got %q", "bar", ret)
@@ -145,11 +145,11 @@ func TestLoadSaveUpdateComplex(t *testing.T) {
 		Stuff:              []string{"first", "second", "third"},
 	}
 
-	tc := NewTestClient([]runtime.Object{configMap(map[string]string{"foo": marshal(t, &ts)})}...)
+	tc := newTestClient([]runtime.Object{configMap(map[string]string{"foo": marshal(t, &ts)})}...)
 	cs := NewConfigMapKVStore(context.Background(), name, namespace, tc.clientset)
 	err := cs.Init(context.Background())
 	if err != nil {
-		t.Errorf("Failed to Init ConfigStore: %v", err)
+		t.Error("Failed to Init ConfigStore:", err)
 	}
 	ts2 := testStruct{
 		LastThingProcessed: "otherthingie",
@@ -163,10 +163,10 @@ func TestLoadSaveUpdateComplex(t *testing.T) {
 	var ret testStruct
 	err = cs.Get(context.Background(), "jimmy", &ret)
 	if err != nil {
-		t.Errorf("failed to return string: %v", err)
+		t.Error("failed to return string:", err)
 	}
 	if err != nil {
-		t.Errorf("failed to return string: %v", err)
+		t.Error("failed to return string:", err)
 	}
 	if !reflect.DeepEqual(ret, ts2) {
 		t.Errorf("got back unexpected value, wanted %+v got %+v", ts2, ret)

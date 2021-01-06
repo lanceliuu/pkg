@@ -20,33 +20,30 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/user"
-	"path/filepath"
 	"time"
 
-	"go.opencensus.io/stats/view"
+	"go.uber.org/automaxprocs/maxprocs" // automatically set GOMAXPROCS based on cgroups
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/klog"
-
-	_ "go.uber.org/automaxprocs" // automatically set GOMAXPROCS based on cgroups
-	"go.uber.org/zap"
 
 	kubeclient "knative.dev/pkg/client/injection/kube/client"
-	"knative.dev/pkg/configmap"
+	cminformer "knative.dev/pkg/configmap/informer"
 	"knative.dev/pkg/controller"
 	"knative.dev/pkg/injection"
 	"knative.dev/pkg/leaderelection"
 	"knative.dev/pkg/logging"
+	"knative.dev/pkg/logging/logkey"
 	"knative.dev/pkg/metrics"
 	"knative.dev/pkg/profiling"
 	"knative.dev/pkg/reconciler"
@@ -56,43 +53,19 @@ import (
 	"knative.dev/pkg/webhook"
 )
 
+func init() {
+	maxprocs.Set()
+}
+
 // GetConfig returns a rest.Config to be used for kubernetes client creation.
 // It does so in the following order:
-//   1. Use the passed kubeconfig/masterURL.
+//   1. Use the passed kubeconfig/serverURL.
 //   2. Fallback to the KUBECONFIG environment variable.
 //   3. Fallback to in-cluster config.
 //   4. Fallback to the ~/.kube/config.
-func GetConfig(masterURL, kubeconfig string) (*rest.Config, error) {
-	if kubeconfig == "" {
-		kubeconfig = os.Getenv("KUBECONFIG")
-	}
-
-	// We produce configs a bunch of ways, this gives us a single place
-	// to "decorate" them with common useful things (e.g. for debugging)
-	decorate := func(cfg *rest.Config) *rest.Config {
-		return cfg
-	}
-
-	// If we have an explicit indication of where the kubernetes config lives, read that.
-	if kubeconfig != "" {
-		c, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
-		if err != nil {
-			return nil, err
-		}
-		return decorate(c), nil
-	}
-	// If not, try the in-cluster config.
-	if c, err := rest.InClusterConfig(); err == nil {
-		return decorate(c), nil
-	}
-	// If no in-cluster config, try the default location in the user's home directory.
-	if usr, err := user.Current(); err == nil {
-		if c, err := clientcmd.BuildConfigFromFlags("", filepath.Join(usr.HomeDir, ".kube", "config")); err == nil {
-			return decorate(c), nil
-		}
-	}
-
-	return nil, errors.New("could not create a valid kubeconfig")
+// Deprecated: use injection.GetRESTConfig
+func GetConfig(serverURL, kubeconfig string) (*rest.Config, error) {
+	return injection.GetRESTConfig(serverURL, kubeconfig)
 }
 
 // GetLoggingConfig gets the logging config from either the file system if present
@@ -102,12 +75,12 @@ func GetLoggingConfig(ctx context.Context) (*logging.Config, error) {
 	var loggingConfigMap *corev1.ConfigMap
 	// These timeout and retry interval are set by heuristics.
 	// e.g. istio sidecar needs a few seconds to configure the pod network.
+	var lastErr error
 	if err := wait.PollImmediate(1*time.Second, 5*time.Second, func() (bool, error) {
-		var err error
-		loggingConfigMap, err = kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(logging.ConfigMapName(), metav1.GetOptions{})
-		return err == nil || apierrors.IsNotFound(err), nil
+		loggingConfigMap, lastErr = kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(ctx, logging.ConfigMapName(), metav1.GetOptions{})
+		return lastErr == nil || apierrors.IsNotFound(lastErr), nil
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("timed out waiting for the condition: %w", lastErr)
 	}
 	if loggingConfigMap == nil {
 		return logging.NewConfigFromMap(nil)
@@ -117,7 +90,7 @@ func GetLoggingConfig(ctx context.Context) (*logging.Config, error) {
 
 // GetLeaderElectionConfig gets the leader election config.
 func GetLeaderElectionConfig(ctx context.Context) (*leaderelection.Config, error) {
-	leaderElectionConfigMap, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(leaderelection.ConfigMapName(), metav1.GetOptions{})
+	leaderElectionConfigMap, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(ctx, leaderelection.ConfigMapName(), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return leaderelection.NewConfigFromConfigMap(nil)
 	} else if err != nil {
@@ -128,40 +101,16 @@ func GetLeaderElectionConfig(ctx context.Context) (*leaderelection.Config, error
 
 // EnableInjectionOrDie enables Knative Injection and starts the informers.
 // Both Context and Config are optional.
+// Deprecated: use injection.EnableInjectionOrDie
 func EnableInjectionOrDie(ctx context.Context, cfg *rest.Config) context.Context {
-	if ctx == nil {
-		ctx = signals.NewContext()
-	}
-	if cfg == nil {
-		cfg = ParseAndGetConfigOrDie()
-	}
-
-	// Respect user provided settings, but if omitted customize the default behavior.
-	if cfg.QPS == 0 {
-		cfg.QPS = rest.DefaultQPS
-	}
-	if cfg.Burst == 0 {
-		cfg.Burst = rest.DefaultBurst
-	}
-	ctx = injection.WithConfig(ctx, cfg)
-
-	ctx, informers := injection.Default.SetupInformers(ctx, cfg)
-
-	// Start the injection clients and informers.
-	logging.FromContext(ctx).Info("Starting informers...")
-	go func(ctx context.Context) {
-		if err := controller.StartInformers(ctx.Done(), informers...); err != nil {
-			logging.FromContext(ctx).Fatalw("Failed to start informers", zap.Error(err))
-		}
-		<-ctx.Done()
-	}(ctx)
-
+	ctx, startInformers := injection.EnableInjectionOrDie(ctx, cfg)
+	go startInformers()
 	return ctx
 }
 
 // Main runs the generic main flow with a new context.
-// If any of the contructed controllers are AdmissionControllers or Conversion webhooks,
-// then a webhook is started to serve them.
+// If any of the constructed controllers are AdmissionControllers or Conversion
+// webhooks, then a webhook is started to serve them.
 func Main(component string, ctors ...injection.ControllerConstructor) {
 	// Set up signals so we handle the first shutdown signal gracefully.
 	MainWithContext(signals.NewContext(), component, ctors...)
@@ -184,7 +133,7 @@ func MainWithContext(ctx context.Context, component string, ctors ...injection.C
 			"issue upstream!")
 
 	// HACK: This parses flags, so the above should be set once this runs.
-	cfg := ParseAndGetConfigOrDie()
+	cfg := injection.ParseAndGetRESTConfigOrDie()
 
 	if *disableHighAvailability {
 		ctx = WithHADisabled(ctx)
@@ -213,7 +162,7 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 	log.Printf("Registering %d informers", len(injection.Default.GetInformers()))
 	log.Printf("Registering %d controllers", len(ctors))
 
-	MemStatsOrDie(ctx)
+	metrics.MemStatsOrDie(ctx)
 
 	// Respect user provided settings, but if omitted customize the default behavior.
 	if cfg.QPS == 0 {
@@ -224,7 +173,7 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 		cfg.Burst = len(ctors) * rest.DefaultBurst
 	}
 
-	ctx = EnableInjectionOrDie(ctx, cfg)
+	ctx, startInformers := injection.EnableInjectionOrDie(ctx, cfg)
 
 	logger, atomicLevel := SetupLoggerOrDie(ctx, component)
 	defer flush(logger)
@@ -238,7 +187,7 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 	// Set up leader election config
 	leaderElectionConfig, err := GetLeaderElectionConfig(ctx)
 	if err != nil {
-		logger.Fatalf("Error loading leader election configuration: %v", err)
+		logger.Fatal("Error loading leader election configuration: ", err)
 	}
 
 	if !IsHADisabled(ctx) {
@@ -255,7 +204,7 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 	eg.Go(profilingServer.ListenAndServe)
 
 	// Many of the webhooks rely on configuration, e.g. configurable defaults, feature flags.
-	// So make sure that we have synchonized our configuration state before launching the
+	// So make sure that we have synchronized our configuration state before launching the
 	// webhooks, so that things are properly initialized.
 	logger.Info("Starting configuration manager...")
 	if err := cmw.Start(ctx.Done()); err != nil {
@@ -278,6 +227,9 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 		})
 	}
 
+	// Start the injection clients and informers.
+	startInformers()
+
 	// Wait for webhook informers to sync.
 	if wh != nil {
 		wh.InformersHaveSynced()
@@ -291,7 +243,7 @@ func MainWithConfig(ctx context.Context, component string, cfg *rest.Config, cto
 
 	profilingServer.Shutdown(context.Background())
 	// Don't forward ErrServerClosed as that indicates we're already shutting down.
-	if err := eg.Wait(); err != nil && err != http.ErrServerClosed {
+	if err := eg.Wait(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Errorw("Error while running server", zap.Error(err))
 	}
 }
@@ -303,33 +255,9 @@ func flush(logger *zap.SugaredLogger) {
 
 // ParseAndGetConfigOrDie parses the rest config flags and creates a client or
 // dies by calling log.Fatalf.
+// Deprecated: use injection.ParseAndGetRESTConfigOrDie
 func ParseAndGetConfigOrDie() *rest.Config {
-	var (
-		masterURL = flag.String("master", "",
-			"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
-		kubeconfig = flag.String("kubeconfig", "",
-			"Path to a kubeconfig. Only required if out-of-cluster.")
-	)
-	klog.InitFlags(flag.CommandLine)
-	flag.Parse()
-
-	cfg, err := GetConfig(*masterURL, *kubeconfig)
-	if err != nil {
-		log.Fatalf("Error building kubeconfig: %v", err)
-	}
-
-	return cfg
-}
-
-// MemStatsOrDie sets up reporting on Go memory usage every 30 seconds or dies
-// by calling log.Fatalf.
-func MemStatsOrDie(ctx context.Context) {
-	msp := metrics.NewMemStatsAll()
-	msp.Start(ctx, 30*time.Second)
-
-	if err := view.Register(msp.DefaultViews()...); err != nil {
-		log.Fatalf("Error exporting go memstats view: %v", err)
-	}
+	return injection.ParseAndGetRESTConfigOrDie()
 }
 
 // SetupLoggerOrDie sets up the logger using the config from the given context
@@ -337,9 +265,18 @@ func MemStatsOrDie(ctx context.Context) {
 func SetupLoggerOrDie(ctx context.Context, component string) (*zap.SugaredLogger, zap.AtomicLevel) {
 	loggingConfig, err := GetLoggingConfig(ctx)
 	if err != nil {
-		log.Fatalf("Error reading/parsing logging configuration: %v", err)
+		log.Fatal("Error reading/parsing logging configuration: ", err)
 	}
-	return logging.NewLoggerFromConfig(loggingConfig, component)
+	l, level := logging.NewLoggerFromConfig(loggingConfig, component)
+
+	// If PodName is injected into the env vars, set it on the logger.
+	// This is needed for HA components to distinguish logs from different
+	// pods.
+	if pn := os.Getenv("POD_NAME"); pn != "" {
+		l = l.With(zap.String(logkey.Pod, pn))
+	}
+
+	return l, level
 }
 
 // CheckK8sClientMinimumVersionOrDie checks that the hosting Kubernetes cluster
@@ -353,12 +290,12 @@ func CheckK8sClientMinimumVersionOrDie(ctx context.Context, logger *zap.SugaredL
 
 // SetupConfigMapWatchOrDie establishes a watch of the configmaps in the system
 // namespace that are labeled to be watched or dies by calling log.Fatalw.
-func SetupConfigMapWatchOrDie(ctx context.Context, logger *zap.SugaredLogger) *configmap.InformedWatcher {
+func SetupConfigMapWatchOrDie(ctx context.Context, logger *zap.SugaredLogger) *cminformer.InformedWatcher {
 	kc := kubeclient.Get(ctx)
 	// Create ConfigMaps watcher with optional label-based filter.
 	var cmLabelReqs []labels.Requirement
 	if cmLabel := system.ResourceLabel(); cmLabel != "" {
-		req, err := configmap.FilterConfigByLabelExists(cmLabel)
+		req, err := cminformer.FilterConfigByLabelExists(cmLabel)
 		if err != nil {
 			logger.Fatalw("Failed to generate requirement for label "+cmLabel, zap.Error(err))
 		}
@@ -366,14 +303,14 @@ func SetupConfigMapWatchOrDie(ctx context.Context, logger *zap.SugaredLogger) *c
 		cmLabelReqs = append(cmLabelReqs, *req)
 	}
 	// TODO(mattmoor): This should itself take a context and be injection-based.
-	return configmap.NewInformedWatcher(kc, system.Namespace(), cmLabelReqs...)
+	return cminformer.NewInformedWatcher(kc, system.Namespace(), cmLabelReqs...)
 }
 
 // WatchLoggingConfigOrDie establishes a watch of the logging config or dies by
 // calling log.Fatalw. Note, if the config does not exist, it will be defaulted
 // and this method will not die.
-func WatchLoggingConfigOrDie(ctx context.Context, cmw *configmap.InformedWatcher, logger *zap.SugaredLogger, atomicLevel zap.AtomicLevel, component string) {
-	if _, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(logging.ConfigMapName(),
+func WatchLoggingConfigOrDie(ctx context.Context, cmw *cminformer.InformedWatcher, logger *zap.SugaredLogger, atomicLevel zap.AtomicLevel, component string) {
+	if _, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(ctx, logging.ConfigMapName(),
 		metav1.GetOptions{}); err == nil {
 		cmw.Watch(logging.ConfigMapName(), logging.UpdateLevelFromConfigMap(logger, atomicLevel, component))
 	} else if !apierrors.IsNotFound(err) {
@@ -384,11 +321,11 @@ func WatchLoggingConfigOrDie(ctx context.Context, cmw *configmap.InformedWatcher
 // WatchObservabilityConfigOrDie establishes a watch of the observability config
 // or dies by calling log.Fatalw. Note, if the config does not exist, it will be
 // defaulted and this method will not die.
-func WatchObservabilityConfigOrDie(ctx context.Context, cmw *configmap.InformedWatcher, profilingHandler *profiling.Handler, logger *zap.SugaredLogger, component string) {
-	if _, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(metrics.ConfigMapName(),
+func WatchObservabilityConfigOrDie(ctx context.Context, cmw *cminformer.InformedWatcher, profilingHandler *profiling.Handler, logger *zap.SugaredLogger, component string) {
+	if _, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(ctx, metrics.ConfigMapName(),
 		metav1.GetOptions{}); err == nil {
 		cmw.Watch(metrics.ConfigMapName(),
-			metrics.ConfigMapWatcher(component, SecretFetcher(ctx), logger),
+			metrics.ConfigMapWatcher(ctx, component, SecretFetcher(ctx), logger),
 			profilingHandler.UpdateFromConfigMap)
 	} else if !apierrors.IsNotFound(err) {
 		logger.Fatalw("Error reading ConfigMap "+metrics.ConfigMapName(), zap.Error(err))
@@ -407,14 +344,14 @@ func SecretFetcher(ctx context.Context) metrics.SecretFetcher {
 	// TODO(evankanderson): If this direct request to the apiserver on each TLS connection
 	// to the opencensus agent is too much load, switch to a cached Secret.
 	return func(name string) (*corev1.Secret, error) {
-		return kubeclient.Get(ctx).CoreV1().Secrets(system.Namespace()).Get(name, metav1.GetOptions{})
+		return kubeclient.Get(ctx).CoreV1().Secrets(system.Namespace()).Get(ctx, name, metav1.GetOptions{})
 	}
 }
 
 // ControllersAndWebhooksFromCtors returns a list of the controllers and a list
 // of the webhooks created from the given constructors.
 func ControllersAndWebhooksFromCtors(ctx context.Context,
-	cmw *configmap.InformedWatcher,
+	cmw *cminformer.InformedWatcher,
 	ctors ...injection.ControllerConstructor) ([]*controller.Impl, []interface{}) {
 
 	// Check whether the context has been infused with a leader elector builder.

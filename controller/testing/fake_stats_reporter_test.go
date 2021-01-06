@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/types"
 
 	"knative.dev/pkg/controller"
 )
@@ -32,13 +33,16 @@ func TestReportQueueDepth(t *testing.T) {
 	r := &FakeStatsReporter{}
 	r.ReportQueueDepth(10)
 	if diff := cmp.Diff(r.GetQueueDepths(), []int64{10}); diff != "" {
-		t.Errorf("queue depth len: %v", diff)
+		t.Error("queue depth len:", diff)
 	}
 }
 
 func TestReportReconcile(t *testing.T) {
 	r := &FakeStatsReporter{}
-	r.ReportReconcile(time.Duration(123), "False")
+	r.ReportReconcile(time.Duration(123), "False", types.NamespacedName{
+		Name:      "test_name",
+		Namespace: "default",
+	})
 	if got, want := r.GetReconcileData(), []FakeReconcileStatData{{time.Duration(123), "False"}}; !reflect.DeepEqual(want, got) {
 		t.Errorf("reconcile data len: want: %v, got: %v", want, got)
 	}

@@ -44,11 +44,11 @@ func TestObservabilityConfiguration(t *testing.T) {
 			RequestMetricsBackend:  "stackdriver",
 		},
 		data: map[string]string{
-			"logging.enable-probe-request-log":            "true",
+			EnableProbeReqLogKey:                          "true",
 			"logging.enable-var-log-collection":           "true",
-			"logging.request-log-template":                `{"requestMethod": "{{.Request.Method}}"}`,
+			ReqLogTemplateKey:                             `{"requestMethod": "{{.Request.Method}}"}`,
 			"logging.revision-url-template":               "https://logging.io",
-			"logging.enable-request-log":                  "true",
+			EnableReqLogKey:                               "true",
 			"metrics.request-metrics-backend-destination": "stackdriver",
 			"profiling.enable":                            "true",
 		},
@@ -59,84 +59,66 @@ func TestObservabilityConfiguration(t *testing.T) {
 		name:    "invalid request log template",
 		wantErr: true,
 		data: map[string]string{
-			"logging.request-log-template": `{{ something }}`,
+			ReqLogTemplateKey: `{{ something }}`,
 		},
 	}, {
 		name: "observability configuration with request log set and template default",
 		data: map[string]string{
-			"logging.enable-probe-request-log":            "true",
-			"logging.enable-request-log":                  "true",
-			"logging.enable-var-log-collection":           "true",
-			"logging.revision-url-template":               "https://logging.io",
-			"metrics.request-metrics-backend-destination": "stackdriver",
-			"profiling.enable":                            "true",
+			EnableProbeReqLogKey:            "true",
+			EnableReqLogKey:                 "true",
+			"logging.revision-url-template": "https://logging.io",
 		},
-		wantConfig: &ObservabilityConfig{
-			EnableProbeRequestLog:  true,
-			EnableProfiling:        true,
-			EnableRequestLog:       true,
-			EnableVarLogCollection: true,
-			LoggingURLTemplate:     "https://logging.io",
-			RequestLogTemplate:     DefaultRequestLogTemplate,
-			RequestMetricsBackend:  "stackdriver",
-		},
+		wantConfig: func() *ObservabilityConfig {
+			oc := defaultConfig()
+			oc.EnableProbeRequestLog = true
+			oc.EnableRequestLog = true
+			oc.LoggingURLTemplate = "https://logging.io"
+			return oc
+		}(),
 	}, {
 		name: "observability configuration with request log and template not set",
-		wantConfig: &ObservabilityConfig{
-			EnableProbeRequestLog:  true,
-			EnableProfiling:        true,
-			EnableVarLogCollection: true,
-			LoggingURLTemplate:     "https://logging.io",
-			RequestMetricsBackend:  "stackdriver",
-		},
+		wantConfig: func() *ObservabilityConfig {
+			oc := defaultConfig()
+			oc.RequestLogTemplate = ""
+			oc.EnableProbeRequestLog = true
+			return oc
+		}(),
 		data: map[string]string{
-			"logging.enable-probe-request-log":            "true",
-			"logging.enable-request-log":                  "false",
-			"logging.enable-var-log-collection":           "true",
-			"logging.request-log-template":                "",
-			"logging.revision-url-template":               "https://logging.io",
-			"metrics.request-metrics-backend-destination": "stackdriver",
-			"profiling.enable":                            "true",
+			EnableProbeReqLogKey: "true",
+			EnableReqLogKey:      "false", // Explicit default.
+			ReqLogTemplateKey:    "",
 		},
 	}, {
 		name:    "observability configuration with request log set and template not set",
 		wantErr: true,
 		data: map[string]string{
-			"logging.enable-probe-request-log":            "true",
-			"logging.enable-request-log":                  "true",
-			"logging.enable-var-log-collection":           "true",
-			"logging.request-log-template":                "",
-			"logging.revision-url-template":               "https://logging.io",
-			"metrics.request-metrics-backend-destination": "stackdriver",
-			"profiling.enable":                            "true",
+			EnableProbeReqLogKey:                "true",
+			EnableReqLogKey:                     "true",
+			"logging.enable-var-log-collection": "true",
+			ReqLogTemplateKey:                   "",
 		},
 	}, {
-		name:    "observability configuration with request log not set and with template set",
-		wantErr: false,
-		wantConfig: &ObservabilityConfig{
-			EnableProbeRequestLog:  true,
-			EnableProfiling:        true,
-			EnableVarLogCollection: true,
-			LoggingURLTemplate:     "https://logging.io",
-			RequestLogTemplate:     `{"requestMethod": "{{.Request.Method}}"}`,
-			RequestMetricsBackend:  "stackdriver",
-		},
+		name: "observability configuration with request log not set and with template set",
+		wantConfig: func() *ObservabilityConfig {
+			oc := defaultConfig()
+			oc.EnableProbeRequestLog = true
+			oc.EnableVarLogCollection = true
+			oc.RequestLogTemplate = `{"requestMethod": "{{.Request.Method}}"}`
+			return oc
+		}(),
 		data: map[string]string{
-			"logging.enable-probe-request-log":            "true",
-			"logging.enable-var-log-collection":           "true",
-			"logging.request-log-template":                `{"requestMethod": "{{.Request.Method}}"}`,
-			"logging.revision-url-template":               "https://logging.io",
-			"metrics.request-metrics-backend-destination": "stackdriver",
-			"profiling.enable":                            "true",
+			EnableProbeReqLogKey:                "true",
+			"logging.enable-var-log-collection": "true",
+			ReqLogTemplateKey:                   `{"requestMethod": "{{.Request.Method}}"}`,
 		},
 	}, {
 		name: "observability configuration with collector address",
-		wantConfig: &ObservabilityConfig{
-			LoggingURLTemplate:      DefaultLogURLTemplate,
-			RequestLogTemplate:      DefaultRequestLogTemplate,
-			RequestMetricsBackend:   "opencensus",
-			MetricsCollectorAddress: "otel:55678",
-		},
+		wantConfig: func() *ObservabilityConfig {
+			oc := defaultConfig()
+			oc.RequestMetricsBackend = "opencensus"
+			oc.MetricsCollectorAddress = "otel:55678"
+			return oc
+		}(),
 		data: map[string]string{
 			"metrics.request-metrics-backend-destination": "opencensus",
 			"metrics.opencensus-address":                  "otel:55678",

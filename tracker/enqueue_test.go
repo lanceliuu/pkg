@@ -58,7 +58,7 @@ func TestHappyPathsExact(t *testing.T) {
 
 	thing2 := &Resource{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "reffer.knative.dev/v1alpha1",
+			APIVersion: "refer.knative.dev/v1alpha1",
 			Kind:       "Thing2",
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -73,12 +73,16 @@ func TestHappyPathsExact(t *testing.T) {
 		if got, want := calls, 0; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
 		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 	}
 
 	// Tracked gets called
 	{
 		if err := trk.Track(ref.ObjectReference(), thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 1; got != want {
@@ -88,6 +92,10 @@ func TestHappyPathsExact(t *testing.T) {
 		trk.OnChanged(thing1)
 		if got, want := calls, 2; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 1; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 
@@ -109,12 +117,16 @@ func TestHappyPathsExact(t *testing.T) {
 		if _, stillThere := trk.(*impl).exact[ref]; stillThere {
 			t.Fatal("Timeout passed, but exact for objectReference is still there")
 		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 	}
 
 	// Starts getting called again
 	{
 		if err := trk.Track(ref.ObjectReference(), thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 4; got != want {
@@ -124,6 +136,10 @@ func TestHappyPathsExact(t *testing.T) {
 		trk.OnChanged(thing1)
 		if got, want := calls, 5; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 1; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 
@@ -171,12 +187,20 @@ func TestHappyPathsExact(t *testing.T) {
 		if got, want := calls, 6; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
 		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 	}
 
 	// Track bad object
 	{
 		if err := trk.Track(ref.ObjectReference(), struct{}{}); err == nil {
 			t.Fatal("Track() = nil, wanted error")
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 }
@@ -489,7 +513,7 @@ func TestHappyPathsInexact(t *testing.T) {
 
 	thing2 := &Resource{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "reffer.knative.dev/v1alpha1",
+			APIVersion: "refer.knative.dev/v1alpha1",
 			Kind:       "Thing2",
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -504,12 +528,16 @@ func TestHappyPathsInexact(t *testing.T) {
 		if got, want := calls, 0; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
 		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 	}
 
 	// Tracked gets called
 	{
 		if err := trk.TrackReference(ref, thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 1; got != want {
@@ -519,6 +547,10 @@ func TestHappyPathsInexact(t *testing.T) {
 		trk.OnChanged(thing1)
 		if got, want := calls, 2; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 1; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 
@@ -540,12 +572,16 @@ func TestHappyPathsInexact(t *testing.T) {
 		if _, stillThere := trk.(*impl).exact[ref]; stillThere {
 			t.Fatal("Timeout passed, but exact for objectReference is still there")
 		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 	}
 
 	// Starts getting called again
 	{
 		if err := trk.TrackReference(ref, thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 4; got != want {
@@ -555,6 +591,10 @@ func TestHappyPathsInexact(t *testing.T) {
 		trk.OnChanged(thing1)
 		if got, want := calls, 5; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 1; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 
@@ -598,11 +638,15 @@ func TestHappyPathsInexact(t *testing.T) {
 	// Not called when something about the reference matching changes.
 	{
 		if err := trk.TrackReference(ref, thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 6; got != want {
 			t.Fatalf("Track() = %v, wanted %v", got, want)
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 1; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 
 		thing1unlabeled := thing1.DeepCopy()
@@ -647,12 +691,20 @@ func TestHappyPathsInexact(t *testing.T) {
 		if got, want := calls, 7; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
 		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 	}
 
 	// Track bad object
 	{
 		if err := trk.TrackReference(ref, struct{}{}); err == nil {
 			t.Fatal("Track() = nil, wanted error")
+		}
+		obs := trk.GetObservers(thing1)
+		if got, want := len(obs), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 }
@@ -700,7 +752,7 @@ func TestHappyPathsByBoth(t *testing.T) {
 
 	thing2 := &Resource{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "reffer.knative.dev/v1alpha1",
+			APIVersion: "refer.knative.dev/v1alpha1",
 			Kind:       "Thing2",
 		},
 		ObjectMeta: metav1.ObjectMeta{
@@ -720,19 +772,25 @@ func TestHappyPathsByBoth(t *testing.T) {
 	// Tracked gets called
 	{
 		if err := trk.TrackReference(ref1, thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 1; got != want {
 			t.Fatalf("Track() = %v, wanted %v", got, want)
 		}
+		if got, want := len(trk.GetObservers(thing1)), 1; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
+		}
 
 		if err := trk.TrackReference(ref2, thing2); err != nil {
-			t.Fatalf("Track() = %v", err)
+			t.Fatal("Track() =", err)
 		}
 		// New registrations should result in an immediate callback.
 		if got, want := calls, 2; got != want {
 			t.Fatalf("Track() = %v, wanted %v", got, want)
+		}
+		if got, want := len(trk.GetObservers(thing1)), 2; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 
 		// The callback should be called for each of the tracks (exact and inexact)
@@ -748,6 +806,9 @@ func TestHappyPathsByBoth(t *testing.T) {
 		trk.OnChanged(thing1)
 		if got, want := calls, 4; got != want {
 			t.Fatalf("OnChanged() = %v, wanted %v", got, want)
+		}
+		if got, want := len(trk.GetObservers(thing1)), 0; got != want {
+			t.Fatalf("len(GetObservers()) = %v, wanted %v", got, want)
 		}
 	}
 }

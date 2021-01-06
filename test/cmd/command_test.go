@@ -17,6 +17,7 @@ limitations under the License.
 package cmd
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -65,7 +66,8 @@ func TestRunCommand(t *testing.T) {
 			t.Fatalf("Expect %q but actual is %q", c.expectedOutput, out)
 		}
 		if err != nil {
-			if ce, ok := err.(*CommandLineError); ok {
+			var ce *CommandLineError
+			if errors.As(err, &ce) {
 				if ce.ErrorCode != c.expectedErrorCode {
 					t.Fatalf("Expect to get error code %d but got %d", c.expectedErrorCode, ce.ErrorCode)
 				}
@@ -130,7 +132,8 @@ func TestRunCommands(t *testing.T) {
 			t.Fatalf("Expect %q but actual is %q", c.expectedOutput, out)
 		}
 		if err != nil {
-			if ce, ok := err.(*CommandLineError); ok {
+			var ce *CommandLineError
+			if errors.As(err, &ce) {
 				if ce.ErrorCode != c.expectedErrorCode {
 					t.Fatalf("Expect to get error code %d but got %d", c.expectedErrorCode, ce.ErrorCode)
 				}
@@ -138,7 +141,7 @@ func TestRunCommands(t *testing.T) {
 					t.Fatalf("Expect to get error message %q but got %q", c.expectedErrorOutput, ce.ErrorOutput)
 				}
 			} else {
-				t.Fatalf("Expect to get a CommandLineError but got %s", reflect.TypeOf(err))
+				t.Fatal("Expect to get a CommandLineError but got", reflect.TypeOf(err))
 			}
 		} else {
 			if c.expectedErrorCode != 0 {
@@ -197,7 +200,7 @@ func TestRunCommandsInParallel(t *testing.T) {
 			}
 		} else {
 			if err != nil {
-				t.Fatalf("Expect to get no error but got %v", err)
+				t.Fatal("Expect to get no error but got", err)
 			}
 		}
 	}

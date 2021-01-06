@@ -58,7 +58,7 @@ func TestNewConfigSuccess(t *testing.T) {
 	}{{
 		name:   "Empty map",
 		input:  map[string]string{},
-		output: defaultConfig(),
+		output: NoopConfig(),
 	}, {
 		name: "Everything enabled (legacy)",
 		input: map[string]string{
@@ -131,13 +131,13 @@ func TestNewConfigSuccess(t *testing.T) {
 				t.Fatal("Failed to create tracing config:", err)
 			}
 			if diff := cmp.Diff(tc.output, cfg); diff != "" {
-				t.Errorf("Got config from map (-want, +got) = %v", diff)
+				t.Error("Got config from map (-want, +got) =", diff)
 			}
 		})
 	}
 }
 
-func TestNewConfigJson(t *testing.T) {
+func TestNewConfigJSON(t *testing.T) {
 	tt := []struct {
 		name   string
 		input  map[string]string
@@ -145,7 +145,7 @@ func TestNewConfigJson(t *testing.T) {
 	}{{
 		name:   "Empty map",
 		input:  map[string]string{},
-		output: defaultConfig(),
+		output: NoopConfig(),
 	}, {
 		name: "Everything enabled (legacy)",
 		input: map[string]string{
@@ -216,12 +216,12 @@ func TestNewConfigJson(t *testing.T) {
 				t.Fatal("Failed to create tracing config:", err)
 			}
 
-			json, err := TracingConfigToJson(config)
+			json, err := TracingConfigToJSON(config)
 			if err != nil {
 				t.Fatal("Failed to create tracing config:", err)
 			}
 
-			haveConfig, err := JsonToTracingConfig(json)
+			haveConfig, err := JSONToTracingConfig(json)
 			if err != nil {
 				t.Fatal("Failed to create tracing config:", err)
 			}

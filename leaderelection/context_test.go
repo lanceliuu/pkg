@@ -1,6 +1,3 @@
-// +build !race
-// TODO(https://github.com/kubernetes/kubernetes/issues/90952): Remove the above.
-
 /*
 Copyright 2020 The Knative Authors
 
@@ -23,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"testing"
 	"time"
 
@@ -100,7 +96,7 @@ func TestWithBuilder(t *testing.T) {
 
 	le, err := BuildElector(ctx, laf, "name", enq)
 	if err != nil {
-		t.Fatalf("BuildElector() = %v", err)
+		t.Fatal("BuildElector() =", err)
 	}
 
 	// We shouldn't see leases until we Run the elector.
@@ -194,7 +190,7 @@ func TestBuilderWithCustomizedLeaseName(t *testing.T) {
 	ctx = WithDynamicLeaderElectorBuilder(ctx, kc, cc)
 	le, err := BuildElector(ctx, laf, "name", enq)
 	if err != nil {
-		t.Fatalf("BuildElector() = %v", err)
+		t.Fatal("BuildElector() =", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -252,7 +248,6 @@ func TestNewStatefulSetBucketAndSet(t *testing.T) {
 	}
 
 	gotNames := bs.BucketList()
-	sort.Strings(gotNames)
 	if !cmp.Equal(gotNames, wantNames) {
 		t.Errorf("BucketSet.BucketList() = %q, want: %q", gotNames, wantNames)
 	}
@@ -299,7 +294,7 @@ func TestWithStatefulSetBuilder(t *testing.T) {
 
 	le, err := BuildElector(ctx, laf, "name", enq)
 	if err != nil {
-		t.Fatalf("BuildElector() = %v", err)
+		t.Fatal("BuildElector() =", err)
 	}
 
 	ule, ok := le.(*unopposedElector)

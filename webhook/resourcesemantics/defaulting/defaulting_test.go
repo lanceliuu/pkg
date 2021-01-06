@@ -99,13 +99,13 @@ var (
 
 func newNonRunningTestResourceAdmissionController(t *testing.T) (
 	kubeClient *fakekubeclientset.Clientset,
-	ac *reconciler) {
+	ac webhook.AdmissionController) {
 
 	t.Helper()
 	// Create fake clients
 	kubeClient = fakekubeclientset.NewSimpleClientset(initialResourceWebhook)
 
-	ac = NewTestResourceAdmissionController(t)
+	ac = newTestResourceAdmissionController(t)
 	return
 }
 
@@ -179,7 +179,7 @@ func TestUnknownFieldFails(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("Failed to marshal resource: %v", err)
+		t.Fatal("Failed to marshal resource:", err)
 	}
 	req.Object.Raw = marshaled
 
@@ -332,7 +332,7 @@ func createCreateResource(ctx context.Context, t *testing.T, r *Resource) *admis
 	}
 	marshaled, err := json.Marshal(r)
 	if err != nil {
-		t.Fatalf("Failed to marshal resource: %v", err)
+		t.Fatal("Failed to marshal resource:", err)
 	}
 	req.Object.Raw = marshaled
 	req.Resource.Group = "pkg.knative.dev"
@@ -442,12 +442,12 @@ func createUpdateResource(ctx context.Context, t *testing.T, old, new *Resource)
 	}
 	marshaled, err := json.Marshal(new)
 	if err != nil {
-		t.Errorf("Failed to marshal resource: %v", err)
+		t.Error("Failed to marshal resource:", err)
 	}
 	req.Object.Raw = marshaled
 	marshaledOld, err := json.Marshal(old)
 	if err != nil {
-		t.Errorf("Failed to marshal resource: %v", err)
+		t.Error("Failed to marshal resource:", err)
 	}
 	req.OldObject.Raw = marshaledOld
 	req.Resource.Group = "pkg.knative.dev"
@@ -491,21 +491,21 @@ func createInnerDefaultResourceWithoutSpec(t *testing.T) []byte {
 	// generic map[string]interface{}, removing 'spec', and marshaling it again.
 	origBytes, err := json.Marshal(r)
 	if err != nil {
-		t.Fatalf("Error marshaling origBytes: %v", err)
+		t.Fatal("Error marshaling origBytes:", err)
 	}
 	var q map[string]interface{}
 	if err := json.Unmarshal(origBytes, &q); err != nil {
-		t.Fatalf("Error unmarshaling origBytes: %v", err)
+		t.Fatal("Error unmarshaling origBytes:", err)
 	}
 	delete(q, "spec")
 	b, err := json.Marshal(q)
 	if err != nil {
-		t.Fatalf("Error marshaling q: %v", err)
+		t.Fatal("Error marshaling q:", err)
 	}
 	return b
 }
 
-func NewTestResourceAdmissionController(t *testing.T) *reconciler {
+func newTestResourceAdmissionController(t *testing.T) webhook.AdmissionController {
 	ctx, _ := SetupFakeContext(t)
 	ctx = webhook.WithOptions(ctx, webhook.Options{
 		SecretName: "webhook-secret",

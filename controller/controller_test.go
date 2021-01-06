@@ -722,7 +722,7 @@ func TestEnqueue(t *testing.T) {
 			gotQueue := drainWorkQueue(impl.WorkQueue())
 
 			if diff := cmp.Diff(test.wantQueue, gotQueue); diff != "" {
-				t.Errorf("unexpected queue (-want +got): %s", diff)
+				t.Error("unexpected queue (-want +got):", diff)
 			}
 		})
 	}
@@ -736,7 +736,7 @@ func TestEnqueue(t *testing.T) {
 			gotQueue := drainWorkQueue(impl.WorkQueue())
 
 			if diff := cmp.Diff(test.wantQueue, gotQueue); diff != "" {
-				t.Errorf("unexpected queue (-want +got): %s", diff)
+				t.Error("unexpected queue (-want +got):", diff)
 			}
 		})
 	}
@@ -754,10 +754,10 @@ const (
 	queueCheckTimeout = shortDelay + 500*time.Millisecond
 )
 
-func pollQ(q workqueue.RateLimitingInterface, sig chan struct{}) func() (bool, error) {
+func pollQ(q workqueue.RateLimitingInterface, sig chan int) func() (bool, error) {
 	return func() (bool, error) {
-		if q.Len() > 0 {
-			sig <- struct{}{}
+		if ql := q.Len(); ql > 0 {
+			sig <- ql
 			return true, nil
 		}
 		return false, nil
@@ -765,7 +765,6 @@ func pollQ(q workqueue.RateLimitingInterface, sig chan struct{}) func() (bool, e
 }
 
 func TestEnqueueAfter(t *testing.T) {
-
 	impl := NewImplWithStats(&nopReconciler{}, TestLogger(t), "Testing", &FakeStatsReporter{})
 	t.Cleanup(func() {
 		impl.WorkQueue().ShutDown()
@@ -795,7 +794,7 @@ func TestEnqueueAfter(t *testing.T) {
 	}, shortDelay)
 
 	// Keep checking the queue length until 'to/fall' gets enqueued, send to channel to indicate success.
-	queuePopulated := make(chan struct{})
+	queuePopulated := make(chan int)
 	ctx, cancel := context.WithTimeout(context.Background(), queueCheckTimeout)
 
 	t.Cleanup(func() {
@@ -807,11 +806,11 @@ func TestEnqueueAfter(t *testing.T) {
 		pollQ(impl.WorkQueue(), queuePopulated), ctx.Done())
 
 	select {
-	case <-queuePopulated:
+	case qlen := <-queuePopulated:
 		if enqueueDelay := time.Since(enqueueTime); enqueueDelay < shortDelay {
 			t.Errorf("Item enqueued within %v, expected at least a %v delay", enqueueDelay, shortDelay)
 		}
-		if got, want := impl.WorkQueue().Len(), 1; got != want {
+		if got, want := qlen, 1; got != want {
 			t.Errorf("|Queue| = %d, want: %d", got, want)
 		}
 
@@ -842,7 +841,7 @@ func TestEnqueueKeyAfter(t *testing.T) {
 	impl.EnqueueKeyAfter(types.NamespacedName{Namespace: "to", Name: "fall"}, shortDelay)
 
 	// Keep checking the queue length until 'to/fall' gets enqueued, send to channel to indicate success.
-	queuePopulated := make(chan struct{})
+	queuePopulated := make(chan int)
 
 	ctx, cancel := context.WithTimeout(context.Background(), queueCheckTimeout)
 
@@ -855,11 +854,11 @@ func TestEnqueueKeyAfter(t *testing.T) {
 		pollQ(impl.WorkQueue(), queuePopulated), ctx.Done())
 
 	select {
-	case <-queuePopulated:
+	case qlen := <-queuePopulated:
 		if enqueueDelay := time.Since(enqueueTime); enqueueDelay < shortDelay {
 			t.Errorf("Item enqueued within %v, expected at least a %v delay", enqueueDelay, shortDelay)
 		}
-		if got, want := impl.WorkQueue().Len(), 1; got != want {
+		if got, want := qlen, 1; got != want {
 			t.Errorf("|Queue| = %d, want: %d", got, want)
 		}
 
@@ -889,14 +888,15 @@ func TestStartAndShutdown(t *testing.T) {
 	impl := NewImplWithStats(r, TestLogger(t), "Testing", &FakeStatsReporter{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
 	doneCh := make(chan struct{})
-
 	go func() {
 		defer close(doneCh)
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
 
 	select {
 	case <-time.After(10 * time.Millisecond):
@@ -954,13 +954,15 @@ func TestStartAndShutdownWithLeaderAwareNoElection(t *testing.T) {
 	impl := NewImplWithStats(r, TestLogger(t), "Testing", &FakeStatsReporter{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	doneCh := make(chan struct{})
-
 	go func() {
 		defer close(doneCh)
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
 
 	select {
 	case <-promoted:
@@ -1020,14 +1022,16 @@ func TestStartAndShutdownWithLeaderAwareWithLostElection(t *testing.T) {
 	impl := NewImplWithStats(r, TestLogger(t), "Testing", &FakeStatsReporter{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	ctx = leaderelection.WithStandardLeaderElectorBuilder(ctx, kc, cc)
 	doneCh := make(chan struct{})
-
 	go func() {
 		defer close(doneCh)
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
 
 	select {
 	case <-promoted:
@@ -1058,15 +1062,17 @@ func TestStartAndShutdownWithWork(t *testing.T) {
 	impl := NewImplWithStats(r, TestLogger(t), "Testing", reporter)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	doneCh := make(chan struct{})
-
-	impl.EnqueueKey(types.NamespacedName{Namespace: "foo", Name: "bar"})
-
 	go func() {
 		defer close(doneCh)
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
+
+	impl.EnqueueKey(types.NamespacedName{Namespace: "foo", Name: "bar"})
 
 	select {
 	case <-time.After(10 * time.Millisecond):
@@ -1137,8 +1143,6 @@ func TestStartAndShutdownWithErroringWork(t *testing.T) {
 	impl.EnqueueKey(item)
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
-	t.Cleanup(cancel)
-
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
@@ -1146,6 +1150,10 @@ func TestStartAndShutdownWithErroringWork(t *testing.T) {
 		// be until we cancel the context.
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
 
 	// Keep checking the number of requeues, send to channel to indicate success.
 	itemRequeued := make(chan struct{})
@@ -1189,15 +1197,17 @@ func TestStartAndShutdownWithPermanentErroringWork(t *testing.T) {
 	impl := NewImplWithStats(r, TestLogger(t), "Testing", reporter)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	doneCh := make(chan struct{})
-
-	impl.EnqueueKey(types.NamespacedName{Namespace: "foo", Name: "bar"})
-
 	go func() {
 		defer close(doneCh)
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
+
+	impl.EnqueueKey(types.NamespacedName{Namespace: "foo", Name: "bar"})
 
 	select {
 	case <-time.After(20 * time.Millisecond):
@@ -1233,21 +1243,21 @@ func drainWorkQueue(wq workqueue.RateLimitingInterface) (hasQueue []types.Namesp
 	return
 }
 
-type dummyInformer struct {
+type fakeInformer struct {
 	cache.SharedInformer
 }
 
-type dummyStore struct {
+type fakeStore struct {
 	cache.Store
 }
 
-func (*dummyInformer) GetStore() cache.Store {
-	return &dummyStore{}
+func (*fakeInformer) GetStore() cache.Store {
+	return &fakeStore{}
 }
 
 var (
-	dummyKeys = []string{"foo/bar", "bar/foo", "fizz/buzz"}
-	dummyObjs = []interface{}{
+	fakeKeys = []string{"foo/bar", "bar/foo", "fizz/buzz"}
+	fakeObjs = []interface{}{
 		&Resource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "bar",
@@ -1269,12 +1279,12 @@ var (
 	}
 )
 
-func (*dummyStore) ListKeys() []string {
-	return dummyKeys
+func (*fakeStore) ListKeys() []string {
+	return fakeKeys
 }
 
-func (*dummyStore) List() []interface{} {
-	return dummyObjs
+func (*fakeStore) List() []interface{} {
+	return fakeObjs
 }
 
 func TestImplGlobalResync(t *testing.T) {
@@ -1282,18 +1292,20 @@ func TestImplGlobalResync(t *testing.T) {
 	impl := NewImplWithStats(r, TestLogger(t), "Testing", &FakeStatsReporter{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	doneCh := make(chan struct{})
-
 	go func() {
 		defer close(doneCh)
 		StartAll(ctx, impl)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-doneCh
+	})
 
-	impl.GlobalResync(&dummyInformer{})
+	impl.GlobalResync(&fakeInformer{})
 
 	// The global resync delays enqueuing things by a second with a jitter that
-	// goes up to len(dummyObjs) times a second: time.Duration(1+len(dummyObjs)) * time.Second.
+	// goes up to len(fakeObjs) times a second: time.Duration(1+len(fakeObjs)) * time.Second.
 	// In this test, the fast lane is empty, so we can assume immediate enqueuing.
 	select {
 	case <-time.After(50 * time.Millisecond):
@@ -1381,7 +1393,7 @@ func TestStartInformersSuccess(t *testing.T) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
+			t.Error("Unexpected error:", err)
 		}
 	case <-time.After(time.Second):
 		t.Error("Timed out waiting for informers to sync.")
@@ -1413,7 +1425,7 @@ func TestStartInformersEventualSuccess(t *testing.T) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Errorf("Unexpected error: %v", err)
+			t.Error("Unexpected error:", err)
 		}
 	case <-time.After(time.Second):
 		t.Error("Timed out waiting for informers to sync.")
@@ -1466,7 +1478,7 @@ func TestRunInformersSuccess(t *testing.T) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+			t.Fatal("Unexpected error:", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Timed out waiting for informers to sync.")
@@ -1500,7 +1512,7 @@ func TestRunInformersEventualSuccess(t *testing.T) {
 	select {
 	case err := <-errCh:
 		if err != nil {
-			t.Fatalf("Unexpected error: %v", err)
+			t.Fatal("Unexpected error:", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Timed out waiting for informers to sync.")
@@ -1554,7 +1566,7 @@ func TestRunInformersFinished(t *testing.T) {
 
 	waitInformers, err := RunInformers(ctx.Done(), fi)
 	if err != nil {
-		t.Fatalf("Failed to start informers: %v", err)
+		t.Fatal("Failed to start informers:", err)
 	}
 
 	cancel()

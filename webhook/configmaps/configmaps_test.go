@@ -255,7 +255,7 @@ func TestDenyInvalidUpdateConfigMapExample(t *testing.T) {
 
 	resp := ac.Admit(ctx, createCreateConfigMapRequest(ctx, t, r))
 
-	ExpectFailsWith(t, resp, fmt.Sprintf("%q modified", configmap.ExampleKey))
+	ExpectFailsWith(t, resp, fmt.Sprintf("a key in %q", configmap.ExampleKey))
 }
 
 type config struct {
@@ -338,7 +338,7 @@ func configMapRequest(
 	}
 	marshaled, err := json.Marshal(r)
 	if err != nil {
-		t.Fatalf("Failed to marshal resource: %v", err)
+		t.Fatal("Failed to marshal resource:", err)
 	}
 	req.Object.Raw = marshaled
 	req.Resource.Group = ""

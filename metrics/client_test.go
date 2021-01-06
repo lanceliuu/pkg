@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"go.opencensus.io/stats/view"
+	"golang.org/x/net/context"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -57,7 +58,11 @@ func TestClientMetrics(t *testing.T) {
 		Latency: newFloat64("latency"),
 		Result:  newInt64("result"),
 	}
-	metrics.Register(cp.NewLatencyMetric(), cp.NewResultMetric())
+	opts := metrics.RegisterOpts{
+		RequestLatency: cp.NewLatencyMetric(),
+		RequestResult:  cp.NewResultMetric(),
+	}
+	metrics.Register(opts)
 
 	// Reset the metrics configuration to avoid leaked state from other tests.
 	InitForTesting()
@@ -67,7 +72,7 @@ func TestClientMetrics(t *testing.T) {
 		t.Errorf("len(DefaultViews()) = %d, want %d", got, want)
 	}
 	if err := view.Register(views...); err != nil {
-		t.Errorf("view.Register() = %v", err)
+		t.Error("view.Register() =", err)
 	}
 	defer view.Unregister(views...)
 
@@ -102,9 +107,9 @@ func TestClientMetrics(t *testing.T) {
 		&http.Client{Transport: stub})
 
 	// When we send rest requests, we should trigger the metrics setup above.
-	result := client.Verb(http.MethodGet).Do()
+	result := client.Verb(http.MethodGet).Do(context.Background())
 	if err := result.Error(); err != nil {
-		t.Errorf("Do() = %v", err)
+		t.Error("Do() =", err)
 	}
 
 	// Now we have stats reported!
